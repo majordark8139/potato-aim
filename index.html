@@ -33,7 +33,7 @@
         .hm-v { left: 7px; top: 0; width: 2px; height: 16px; }
         .hm-h { top: 7px; left: 0; width: 16px; height: 2px; }
 
-        /* Damage Flash Overlay */
+        /* Red Damage Flash */
         #damage-flash {
             position: absolute; width: 100%; height: 100%;
             pointer-events: none; z-index: 9;
@@ -51,6 +51,7 @@
         .fps-display { color: #ffff00; }
         .rt-display { color: #ff00ff; }
         .hp-display { color: #00ff66; }
+        .headshot-display { color: #ff0055; }
 
         /* Menus */
         #blocker {
@@ -114,14 +115,15 @@
         SCORE: <span id="score-val">0</span><br>
         <span id="stat-row">ACCURACY: <span id="acc-val">100%</span></span><br>
         <span id="streak-row">STREAK: <span id="streak-val">0</span></span><br>
-        <span id="rt-row">LAST RT: <span id="rt-val" class="rt-display">-- ms</span> (AVG: <span id="avg-rt-val" class="rt-display">-- ms</span>)</span>
+        <span id="rt-row">LAST RT: <span id="rt-val" class="rt-display">-- ms</span> (AVG: <span id="avg-rt-val" class="rt-display">-- ms</span>)</span><br>
+        <span id="hit-feedback" class="headshot-display"></span>
     </div>
 
     <div id="blocker">
-        <!-- 1. ROOT HUB MENU -->
+        <!-- ROOT MENU -->
         <div id="root-menu" class="menu-card active">
             <h1>CHOOSE SIMULATION</h1>
-            <p>1:1 ZERO-LATENCY ENGINE</p>
+            <p>1:1 ZERO-LATENCY ENGINE • WASD + SPACE MOVEMENT</p>
             <button class="btn" onclick="showSubMenu('trainer')">1. AIM TRAINER</button><br>
             <button class="btn" onclick="showSubMenu('fps')">2. BAREBONES FPS COMBAT</button>
             <div class="row" style="margin-top: 20px;">
@@ -131,10 +133,10 @@
             </div>
         </div>
 
-        <!-- 2. AIM TRAINER CONFIG MENU -->
+        <!-- AIM TRAINER MENU -->
         <div id="trainer-menu" class="menu-card">
             <h1>AIM TRAINER CONFIG</h1>
-            <p>ISOLATED TARGET DRILLS</p>
+            <p>ISOLATED TARGET DRILLS (UNIFORM SPEED)</p>
             <div class="mode-select">
                 <button class="mode-btn active" id="flick-tab" onclick="setFiringMode('flick')">FLICK</button>
                 <button class="mode-btn" id="track-tab" onclick="setFiringMode('track')">TRACKING</button>
@@ -157,13 +159,13 @@
             </div>
         </div>
 
-        <!-- 3. BAREBONES FPS COMBAT MENU -->
+        <!-- FPS COMBAT MENU -->
         <div id="fps-menu" class="menu-card">
             <h1>COMBAT ARENA</h1>
-            <p>ENEMIES PEEK COVER & FIRE AT YOU</p>
+            <p>KRUNKER HITBOXES (HEAD / BODY) • WASD MOVEMENT</p>
             <div class="mode-select">
-                <button class="mode-btn active" id="fps-flick-tab" onclick="setFiringMode('flick')">FLICK (POP ENEMIES)</button>
-                <button class="mode-btn" id="fps-track-tab" onclick="setFiringMode('track')">TRACKING (MELT BEAM)</button>
+                <button class="mode-btn active" id="fps-flick-tab" onclick="setFiringMode('flick')">FLICK (1-TAP HEAD)</button>
+                <button class="mode-btn" id="fps-track-tab" onclick="setFiringMode('track')">TRACKING (BEAM)</button>
             </div>
             <div id="fps-flick-sub" class="mode-select">
                 <button class="sub-btn active" id="fps-type-hitscan" onclick="setFlickType('hitscan')">HITSCAN</button>
@@ -198,7 +200,7 @@
         /* --- THREE.JS ENGINE SETUP --- */
         const container = document.getElementById('canvas-container');
         const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(85, window.innerWidth / window.innerHeight, 0.1, 100);
+        const camera = new THREE.PerspectiveCamera(85, window.innerWidth / window.innerHeight, 0.1, 200);
         camera.rotation.order = 'YXZ';
 
         const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
@@ -207,11 +209,14 @@
         container.appendChild(renderer.domElement);
 
         /* --- STATE --- */
-        let activeEnvironment = 'trainer'; // 'trainer' or 'fps'
-        let firingMode = 'flick'; // 'flick' or 'track'
-        let flickType = 'hitscan'; // 'hitscan' or 'projectile'
+        let activeEnvironment = 'trainer';
+        let firingMode = 'flick';
+        let flickType = 'hitscan';
         let targetSpeedMult = 1.0;
         let projectileVelocity = 160;
+
+        // FIXED: Exact uniform baseline speed for all targets (no random ranges)
+        const CONSTANT_TARGET_SPEED = 14.0;
 
         let playerHp = 100;
         let isLocked = false, isMouseDown = false;
@@ -220,8 +225,65 @@
         let totalActiveTime = 0, totalTrackingTime = 0;
         let reactionTimes = [];
 
-        /* --- ENVIRONMENTS: MAP GEOMETRIES --- */
-        // Trainer Simple Wireframe Box
+        /* --- KRUNKER-STYLE WASD + JUMP MOVEMENT --- */
+        const keys = { KeyW: false, KeyA: false, KeyS: false, KeyD: false, Space: false };
+        const player = {
+            pos: new THREE.Vector3(0, 0, 14),
+            vel: new THREE.Vector3(),
+            onGround: true,
+            eyeHeight: 2.2
+        };
+
+        window.addEventListener('keydown', (e) => { if (keys.hasOwnProperty(e.code)) keys[e.code] = true; });
+        window.addEventListener('keyup', (e) => { if (keys.hasOwnProperty(e.code)) keys[e.code] = false; });
+
+        function updatePlayerMovement(delta) {
+            if (activeEnvironment !== 'fps') {
+                camera.position.set(0, 0, 0);
+                return;
+            }
+
+            const moveSpeed = 26.0;
+            const inputVec = new THREE.Vector3();
+
+            if (keys.KeyW) inputVec.z -= 1;
+            if (keys.KeyS) inputVec.z += 1;
+            if (keys.KeyA) inputVec.x -= 1;
+            if (keys.KeyD) inputVec.x += 1;
+
+            if (inputVec.lengthSq() > 0) {
+                inputVec.normalize();
+                inputVec.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+                player.vel.x = inputVec.x * moveSpeed;
+                player.vel.z = inputVec.z * moveSpeed;
+            } else {
+                player.vel.x *= Math.max(0, 1 - delta * 12);
+                player.vel.z *= Math.max(0, 1 - delta * 12);
+            }
+
+            if (keys.Space && player.onGround) {
+                player.vel.y = 14.0;
+                player.onGround = false;
+            }
+            player.vel.y -= 38.0 * delta;
+
+            player.pos.x += player.vel.x * delta;
+            player.pos.y += player.vel.y * delta;
+            player.pos.z += player.vel.z * delta;
+
+            if (player.pos.y <= -2.0) {
+                player.pos.y = -2.0;
+                player.vel.y = 0;
+                player.onGround = true;
+            }
+
+            player.pos.x = Math.max(-38, Math.min(38, player.pos.x));
+            player.pos.z = Math.max(-4, Math.min(38, player.pos.z));
+
+            camera.position.set(player.pos.x, player.pos.y + player.eyeHeight, player.pos.z);
+        }
+
+        /* --- MAPS & COVERS --- */
         const trainerBox = new THREE.Mesh(
             new THREE.BoxGeometry(60, 30, 50),
             new THREE.MeshBasicMaterial({ color: 0x181824, wireframe: true })
@@ -229,29 +291,42 @@
         trainerBox.position.set(0, 0, -15);
         scene.add(trainerBox);
 
-        // FPS Map: Floor, Back wall & Cover Pillars
         const fpsGroup = new THREE.Group();
-        const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 40), new THREE.MeshBasicMaterial({ color: 0x12121a, wireframe: true }));
-        floor.rotation.x = -Math.PI / 2;
-        floor.position.set(0, -5, -15);
-        fpsGroup.add(floor);
+        const arenaFloor = new THREE.Mesh(new THREE.PlaneGeometry(90, 90), new THREE.MeshBasicMaterial({ color: 0x0f0f18, wireframe: true }));
+        arenaFloor.rotation.x = -Math.PI / 2;
+        arenaFloor.position.set(0, -2.0, 0);
+        fpsGroup.add(arenaFloor);
 
-        const coverGeo = new THREE.BoxGeometry(3.5, 9, 3);
-        const coverMat = new THREE.MeshBasicMaterial({ color: 0x222238, wireframe: true });
-        const coverPositions = [
-            [-14, -0.5, -16], [-5, -0.5, -22], [5, -0.5, -20], [15, -0.5, -17],
-            [-9, -0.5, -11], [9, -0.5, -12]
+        const arenaBorder = new THREE.Mesh(new THREE.BoxGeometry(90, 25, 90), new THREE.MeshBasicMaterial({ color: 0x15152a, wireframe: true }));
+        arenaBorder.position.set(0, 10.5, 0);
+        fpsGroup.add(arenaBorder);
+
+        const playerWallGeo = new THREE.BoxGeometry(16, 4.5, 2.5);
+        const coverMat = new THREE.MeshBasicMaterial({ color: 0x252538, wireframe: true });
+        
+        const playerBunkerLeft = new THREE.Mesh(playerWallGeo, coverMat);
+        playerBunkerLeft.position.set(-14, 0.25, 6);
+        fpsGroup.add(playerBunkerLeft);
+
+        const playerBunkerRight = new THREE.Mesh(playerWallGeo, coverMat);
+        playerBunkerRight.position.set(14, 0.25, 6);
+        fpsGroup.add(playerBunkerRight);
+
+        const enemyCoverGeo = new THREE.BoxGeometry(4.5, 11, 3.5);
+        const enemyCoverPositions = [
+            [-28, 3.5, -28], [-14, 3.5, -34], [0, 3.5, -26], [14, 3.5, -34], [28, 3.5, -28]
         ];
 
-        coverPositions.forEach(p => {
-            const pillar = new THREE.Mesh(coverGeo, coverMat);
+        enemyCoverPositions.forEach(p => {
+            const pillar = new THREE.Mesh(enemyCoverGeo, coverMat);
             pillar.position.set(p[0], p[1], p[2]);
             fpsGroup.add(pillar);
         });
+
         fpsGroup.visible = false;
         scene.add(fpsGroup);
 
-        /* --- TARGETS (TRAINER) --- */
+        /* --- TARGETS (UNIFORM CONSTANT SPEED) --- */
         const trainerTargets = [];
         const tGeo = new THREE.IcosahedronGeometry(1.0, 1);
         const flickMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc, wireframe: true });
@@ -260,35 +335,51 @@
         class TrainerTarget {
             constructor() {
                 this.mesh = new THREE.Mesh(tGeo, flickMat);
+                this.direction = new THREE.Vector3();
                 this.spawnTime = performance.now();
                 scene.add(this.mesh);
                 this.reset();
                 trainerTargets.push(this);
             }
+
+            setNormalizedDirection(angle, pitchAngle = 0) {
+                this.direction.set(
+                    Math.cos(angle) * Math.cos(pitchAngle),
+                    Math.sin(pitchAngle),
+                    Math.sin(angle) * Math.cos(pitchAngle)
+                ).normalize();
+            }
+
             reset() {
                 this.mesh.position.set((Math.random() - 0.5) * 35, (Math.random() - 0.5) * 16, -12 - Math.random() * 18);
-                const baseSpeed = firingMode === 'track' ? 14 + Math.random() * 6 : 9 + Math.random() * 6;
                 const angle = Math.random() * Math.PI * 2;
-                this.velX = Math.cos(angle) * baseSpeed;
-                this.velY = Math.sin(angle) * baseSpeed * 0.7;
-                this.velZ = (Math.random() - 0.5) * 6;
-                this.switchTimer = 0.3 + Math.random() * 0.7;
+                const pitchAngle = (Math.random() - 0.5) * 0.8;
+                this.setNormalizedDirection(angle, pitchAngle);
+                this.switchTimer = 1.0;
                 this.spawnTime = performance.now();
             }
-            update(delta) {
-                this.switchTimer -= delta * targetSpeedMult;
-                if (this.switchTimer <= 0) {
-                    this.velX += (Math.random() - 0.5) * 14;
-                    this.velY += (Math.random() - 0.5) * 12;
-                    this.switchTimer = 0.3 + Math.random() * 0.6;
-                }
-                this.mesh.position.x += this.velX * delta * targetSpeedMult;
-                this.mesh.position.y += this.velY * delta * targetSpeedMult;
-                this.mesh.position.z += this.velZ * delta * targetSpeedMult;
 
-                if (this.mesh.position.x > 22 || this.mesh.position.x < -22) this.velX *= -1;
-                if (this.mesh.position.y > 11 || this.mesh.position.y < -11) this.velY *= -1;
-                if (this.mesh.position.z > -8 || this.mesh.position.z < -30) this.velZ *= -1;
+            update(delta) {
+                // Direction changes strictly maintain identical velocity magnitude
+                this.switchTimer -= delta;
+                if (this.switchTimer <= 0) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const pitchAngle = (Math.random() - 0.5) * 0.8;
+                    this.setNormalizedDirection(angle, pitchAngle);
+                    this.switchTimer = 0.8 + Math.random() * 0.8;
+                }
+
+                // Strictly constant displacement: magnitude = CONSTANT_TARGET_SPEED * targetSpeedMult
+                const currentSpeed = CONSTANT_TARGET_SPEED * targetSpeedMult;
+                this.mesh.position.addScaledVector(this.direction, currentSpeed * delta);
+
+                // Clean wall reflections (no acceleration/deceleration)
+                if (this.mesh.position.x > 22 && this.direction.x > 0) this.direction.x *= -1;
+                if (this.mesh.position.x < -22 && this.direction.x < 0) this.direction.x *= -1;
+                if (this.mesh.position.y > 11 && this.direction.y > 0) this.direction.y *= -1;
+                if (this.mesh.position.y < -11 && this.direction.y < 0) this.direction.y *= -1;
+                if (this.mesh.position.z > -8 && this.direction.z > 0) this.direction.z *= -1;
+                if (this.mesh.position.z < -30 && this.direction.z < 0) this.direction.z *= -1;
 
                 this.mesh.rotation.x += delta * 3 * targetSpeedMult;
                 this.mesh.rotation.y += delta * 3 * targetSpeedMult;
@@ -296,75 +387,125 @@
         }
         for (let i = 0; i < 4; i++) new TrainerTarget();
 
-        /* --- ENEMIES (FPS COMBAT: PEEK COVER & SHOOT) --- */
+        /* --- KRUNKER-STYLE ENEMIES --- */
         const enemies = [];
-        const enemyGeo = new THREE.CylinderGeometry(0.8, 0.8, 2.5, 8);
-        const enemyMat = new THREE.MeshBasicMaterial({ color: 0xff2244, wireframe: true });
+        const bodyGeo = new THREE.BoxGeometry(1.6, 2.6, 1.2);
+        const headGeo = new THREE.BoxGeometry(1.0, 1.0, 1.0);
+        const bodyMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc, wireframe: true });
+        const headMat = new THREE.MeshBasicMaterial({ color: 0xff0055, wireframe: true });
 
-        class FpsEnemy {
+        let firingTokensAvailable = 1;
+
+        class KrunkerEnemy {
             constructor(coverPos, id) {
-                this.mesh = new THREE.Mesh(enemyGeo, enemyMat);
+                this.group = new THREE.Group();
                 this.coverX = coverPos[0];
-                this.baseY = coverPos[1];
+                this.baseY = coverPos[1] - 3.5;
                 this.coverZ = coverPos[2];
-                this.peekDir = id % 2 === 0 ? 2.5 : -2.5;
-                this.mesh.position.set(this.coverX, this.baseY, this.coverZ);
+                this.peekDir = (id % 2 === 0 ? 3.4 : -3.4);
+
+                this.bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+                this.bodyMesh.position.y = 1.3;
+                this.bodyMesh.userData = { parentEnemy: this, isHead: false };
+                this.group.add(this.bodyMesh);
+
+                this.headMesh = new THREE.Mesh(headGeo, headMat);
+                this.headMesh.position.y = 3.1;
+                this.headMesh.userData = { parentEnemy: this, isHead: true };
+                this.group.add(this.headMesh);
+
+                this.group.position.set(this.coverX, this.baseY, this.coverZ);
                 this.isPeeking = false;
-                this.stateTimer = 1 + Math.random() * 2;
-                this.shootCooldown = 0.8 + Math.random();
-                this.hp = 60;
+                this.hasToken = false;
+                this.stateTimer = 1.2 + Math.random() * 2.5;
+                this.reactionTimer = 0.9;
+                this.hp = 100;
                 this.spawnTime = performance.now();
-                this.mesh.visible = false;
-                scene.add(this.mesh);
+
+                this.group.visible = false;
+                scene.add(this.group);
                 enemies.push(this);
             }
+
             reset() {
-                this.hp = 60;
+                this.hp = 100;
                 this.isPeeking = false;
-                this.mesh.position.set(this.coverX, this.baseY, this.coverZ);
-                this.stateTimer = 1 + Math.random() * 2;
+                if (this.hasToken) {
+                    firingTokensAvailable++;
+                    this.hasToken = false;
+                }
+                this.group.position.set(this.coverX, this.baseY, this.coverZ);
+                this.stateTimer = 1.0 + Math.random() * 2.0;
             }
+
             update(delta) {
                 this.stateTimer -= delta;
                 if (this.stateTimer <= 0) {
                     this.isPeeking = !this.isPeeking;
-                    this.stateTimer = this.isPeeking ? (1.5 + Math.random() * 1.5) : (1.0 + Math.random() * 2.0);
+                    this.stateTimer = this.isPeeking ? (1.6 + Math.random() * 1.5) : (1.5 + Math.random() * 2.5);
+
                     if (this.isPeeking) {
                         this.spawnTime = performance.now();
-                        this.shootCooldown = 0.6 + Math.random() * 0.5; // Reaction delay before shooting you
+                        this.reactionTimer = 0.8 + Math.random() * 0.4;
+                    } else if (this.hasToken) {
+                        firingTokensAvailable++;
+                        this.hasToken = false;
                     }
                 }
 
-                // Smooth interpolate out of and back into cover
+                // Constant linear peek transition (no dynamic drag decay)
                 const destX = this.isPeeking ? (this.coverX + this.peekDir) : this.coverX;
-                this.mesh.position.x += (destX - this.mesh.position.x) * 8 * delta;
+                const diff = destX - this.group.position.x;
+                const step = 9.0 * delta;
+                if (Math.abs(diff) <= step) {
+                    this.group.position.x = destX;
+                } else {
+                    this.group.position.x += Math.sign(diff) * step;
+                }
 
-                // Enemy shooting logic while peeking
                 if (this.isPeeking && isLocked) {
-                    this.shootCooldown -= delta;
-                    if (this.shootCooldown <= 0) {
-                        this.fireAtPlayer();
-                        this.shootCooldown = 1.2 + Math.random() * 0.8;
+                    if (!this.hasToken && firingTokensAvailable > 0) {
+                        firingTokensAvailable--;
+                        this.hasToken = true;
+                    }
+
+                    if (this.hasToken) {
+                        this.reactionTimer -= delta;
+                        if (this.reactionTimer <= 0) {
+                            this.shootAtPlayer();
+                            this.reactionTimer = 1.5 + Math.random() * 0.8;
+                        }
                     }
                 }
             }
-            fireAtPlayer() {
-                // Enemy shoots a red tracer beam at the player
-                renderBeam(this.mesh.position, 0xff0000, 0.08);
-                playTone(180, 0.08, 'sawtooth', 0.25);
-                playerHp -= 15;
-                flashDamage();
-                document.getElementById('hp-val').textContent = Math.max(0, playerHp);
-                if (playerHp <= 0) {
-                    playerHp = 100;
-                    document.getElementById('hp-val').textContent = 100;
-                    streak = 0;
-                    document.getElementById('streak-val').textContent = 0;
-                    playTone(90, 0.3, 'sawtooth', 0.4);
+
+            shootAtPlayer() {
+                const eyePos = camera.position.clone();
+                const enemyHeadPos = this.headMesh.getWorldPosition(new THREE.Vector3());
+                const losDir = eyePos.clone().sub(enemyHeadPos).normalize();
+                const losDist = enemyHeadPos.distanceTo(eyePos);
+
+                const losRay = new THREE.Raycaster(enemyHeadPos, losDir, 0, losDist);
+                const coverHits = losRay.intersectObjects([playerBunkerLeft, playerBunkerRight]);
+
+                if (coverHits.length === 0) {
+                    renderBeam(enemyHeadPos, 0xff0055, 0.08);
+                    playTone(170, 0.08, 'sawtooth', 0.25);
+                    playerHp -= 16;
+                    flashDamage();
+                    document.getElementById('hp-val').textContent = Math.max(0, playerHp);
+                    if (playerHp <= 0) {
+                        playerHp = 100;
+                        document.getElementById('hp-val').textContent = 100;
+                        streak = 0;
+                        document.getElementById('streak-val').textContent = 0;
+                        playTone(85, 0.35, 'sawtooth', 0.4);
+                    }
                 }
             }
         }
-        coverPositions.forEach((pos, i) => new FpsEnemy(pos, i));
+
+        enemyCoverPositions.forEach((pos, i) => new KrunkerEnemy(pos, i));
 
         function flashDamage() {
             const overlay = document.getElementById('damage-flash');
@@ -400,17 +541,25 @@
 
                 const travel = this.mesh.position.clone().sub(prev);
                 const ray = new THREE.Raycaster(prev, travel.clone().normalize(), 0, travel.length());
-                const targetPool = activeEnvironment === 'trainer' ? trainerTargets.filter(t => t.mesh.visible) : enemies.filter(e => e.mesh.visible);
-                const hits = ray.intersectObjects(targetPool.map(t => t.mesh));
 
+                let hitPool = [];
+                if (activeEnvironment === 'trainer') {
+                    hitPool = trainerTargets.filter(t => t.mesh.visible).map(t => t.mesh);
+                } else {
+                    enemies.filter(e => e.group.visible).forEach(e => {
+                        hitPool.push(e.headMesh, e.bodyMesh);
+                    });
+                }
+
+                const hits = ray.intersectObjects(hitPool);
                 if (hits.length > 0) {
-                    const hitObj = targetPool.find(t => t.mesh === hits[0].object);
-                    onTargetHit(hitObj, hits[0].point);
+                    handleDamageCalculation(hits[0].object, hits[0].point);
                     this.alive = false;
                     this.mesh.visible = false;
                     return;
                 }
-                if (this.mesh.position.length() > 60 || this.mesh.position.z > 2) {
+
+                if (this.mesh.position.distanceTo(camera.position) > 120) {
                     this.alive = false;
                     this.mesh.visible = false;
                 }
@@ -418,7 +567,7 @@
         }
         for (let i = 0; i < 15; i++) new Projectile();
 
-        /* --- BEAM (INSTANT HITSCAN & TRACKING) --- */
+        /* --- INSTANT BEAM --- */
         const beamGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
         const beamMat = new THREE.LineBasicMaterial({ color: 0x00ffff });
         const beam = new THREE.Line(beamGeo, beamMat);
@@ -472,9 +621,8 @@
             document.getElementById('hp-row').style.display = (env === 'fps') ? 'inline' : 'none';
             document.getElementById('hud-mode').textContent = firingMode === 'track' ? 'TRACKING' : `FLICK (${flickType.toUpperCase()})`;
 
-            // Configure Environment Entities
             if (env === 'trainer') {
-                enemies.forEach(e => e.mesh.visible = false);
+                enemies.forEach(e => e.group.visible = false);
                 if (firingMode === 'flick') {
                     trainerTargets.forEach(t => { t.mesh.visible = true; t.mesh.material = flickMat; t.reset(); });
                     document.getElementById('stat-row').innerHTML = 'ACCURACY: <span id="acc-val">100%</span>';
@@ -490,12 +638,13 @@
                     document.getElementById('rt-row').style.display = 'none';
                 }
             } else {
-                // FPS Combat
                 trainerTargets.forEach(t => t.mesh.visible = false);
-                enemies.forEach(e => { e.mesh.visible = true; e.reset(); });
+                enemies.forEach(e => { e.group.visible = true; e.reset(); });
                 document.getElementById('stat-row').innerHTML = 'ACCURACY: <span id="acc-val">100%</span>';
                 document.getElementById('streak-row').style.display = 'inline';
                 document.getElementById('rt-row').style.display = 'inline';
+                player.pos.set(0, 0, 14);
+                player.vel.set(0, 0, 0);
             }
 
             resetStats();
@@ -505,17 +654,19 @@
         function resetStats() {
             score = 0; hits = 0; shots = 0; streak = 0;
             totalActiveTime = 0; totalTrackingTime = 0; playerHp = 100;
+            firingTokensAvailable = 1;
             reactionTimes = [];
             document.getElementById('score-val').textContent = '0';
             document.getElementById('time-val').textContent = '00:00.0';
             document.getElementById('rt-val').textContent = '-- ms';
             document.getElementById('avg-rt-val').textContent = '-- ms';
             document.getElementById('hp-val').textContent = '100';
+            document.getElementById('hit-feedback').textContent = '';
             document.getElementById('acc-val').textContent = firingMode === 'flick' ? '100%' : '0%';
             document.getElementById('streak-val').textContent = '0';
         }
 
-        /* --- SHOOTING & COMBAT LOGIC --- */
+        /* --- SHOOTING & HITBOX DAMAGE CALCULATION --- */
         const raycaster = new THREE.Raycaster();
         const center = new THREE.Vector2(0, 0);
 
@@ -525,17 +676,46 @@
             setTimeout(() => hm.style.display = 'none', 45);
         }
 
-        function onTargetHit(targetObj, hitPoint) {
-            const rt = Math.round(performance.now() - targetObj.spawnTime);
-            reactionTimes.push(rt);
-            document.getElementById('rt-val').textContent = rt + ' ms';
-            document.getElementById('avg-rt-val').textContent = Math.round(reactionTimes.reduce((a, b) => a + b, 0) / reactionTimes.length) + ' ms';
-
-            hits++; streak++;
-            score += 100 + (streak * 10);
-            playTone(520, 0.05);
+        function handleDamageCalculation(hitMesh, hitPoint) {
+            hits++;
+            streak++;
             triggerHitmarker();
-            targetObj.reset();
+
+            if (activeEnvironment === 'trainer') {
+                const targetObj = trainerTargets.find(t => t.mesh === hitMesh);
+                const rt = Math.round(performance.now() - targetObj.spawnTime);
+                reactionTimes.push(rt);
+                document.getElementById('rt-val').textContent = rt + ' ms';
+                document.getElementById('avg-rt-val').textContent = Math.round(reactionTimes.reduce((a, b) => a + b, 0) / reactionTimes.length) + ' ms';
+                score += 100 + (streak * 10);
+                playTone(520, 0.05);
+                targetObj.reset();
+            } else {
+                const isHead = hitMesh.userData.isHead;
+                const enemy = hitMesh.userData.parentEnemy;
+                const feedback = document.getElementById('hit-feedback');
+
+                const rt = Math.round(performance.now() - enemy.spawnTime);
+                reactionTimes.push(rt);
+                document.getElementById('rt-val').textContent = rt + ' ms';
+                document.getElementById('avg-rt-val').textContent = Math.round(reactionTimes.reduce((a, b) => a + b, 0) / reactionTimes.length) + ' ms';
+
+                if (isHead) {
+                    enemy.hp = 0;
+                    score += 250 + (streak * 15);
+                    playTone(880, 0.08, 'triangle', 0.3);
+                    feedback.textContent = 'HEADSHOT! (1-TAP)';
+                    setTimeout(() => feedback.textContent = '', 600);
+                } else {
+                    enemy.hp -= 50;
+                    score += 100;
+                    playTone(480, 0.05, 'triangle', 0.2);
+                    feedback.textContent = 'BODY (50)';
+                    setTimeout(() => feedback.textContent = '', 400);
+                }
+
+                if (enemy.hp <= 0) enemy.reset();
+            }
 
             document.getElementById('score-val').textContent = score;
             document.getElementById('acc-val').textContent = Math.round((hits / shots) * 100) + '%';
@@ -546,17 +726,24 @@
             shots++;
             if (flickType === 'hitscan') {
                 raycaster.setFromCamera(center, camera);
-                const pool = activeEnvironment === 'trainer' ? trainerTargets.filter(t => t.mesh.visible) : enemies.filter(e => e.mesh.visible);
-                const results = raycaster.intersectObjects(pool.map(t => t.mesh));
+                let pool = [];
+                if (activeEnvironment === 'trainer') {
+                    pool = trainerTargets.filter(t => t.mesh.visible).map(t => t.mesh);
+                } else {
+                    enemies.filter(e => e.group.visible).forEach(e => {
+                        pool.push(e.headMesh, e.bodyMesh);
+                    });
+                }
+
+                const results = raycaster.intersectObjects(pool);
                 const hitEnd = new THREE.Vector3();
 
                 if (results.length > 0) {
-                    const hitObj = pool.find(t => t.mesh === results[0].object);
                     hitEnd.copy(results[0].point);
-                    onTargetHit(hitObj, hitEnd);
+                    handleDamageCalculation(results[0].object, hitEnd);
                 } else {
                     streak = 0;
-                    raycaster.ray.at(40, hitEnd);
+                    raycaster.ray.at(50, hitEnd);
                     document.getElementById('streak-val').textContent = streak;
                     document.getElementById('acc-val').textContent = Math.round((hits / shots) * 100) + '%';
                 }
@@ -572,7 +759,15 @@
 
         function fireTrackingTick(delta) {
             raycaster.setFromCamera(center, camera);
-            const pool = activeEnvironment === 'trainer' ? [trainerTargets[0].mesh] : enemies.filter(e => e.mesh.visible).map(e => e.mesh);
+            let pool = [];
+            if (activeEnvironment === 'trainer') {
+                pool = [trainerTargets[0].mesh];
+            } else {
+                enemies.filter(e => e.group.visible).forEach(e => {
+                    pool.push(e.headMesh, e.bodyMesh);
+                });
+            }
+
             const results = raycaster.intersectObjects(pool);
             const hitEnd = new THREE.Vector3();
 
@@ -584,7 +779,7 @@
                 triggerHitmarker();
                 renderBeam(hitEnd, 0xff0055, 0.03);
             } else {
-                raycaster.ray.at(40, hitEnd);
+                raycaster.ray.at(50, hitEnd);
                 renderBeam(hitEnd, 0x442233, 0.03);
             }
 
@@ -633,7 +828,6 @@
             if (e.button === 0) isMouseDown = false;
         });
 
-        // Sliders
         document.getElementById('sens').addEventListener('input', (e) => {
             sens = 0.002 * parseFloat(e.target.value);
             document.getElementById('sens-val').textContent = parseFloat(e.target.value).toFixed(1);
@@ -656,7 +850,6 @@
             const delta = Math.min((now - lastTime) / 1000, 0.05);
             lastTime = now;
 
-            // Frame Counter
             frameCount++;
             fpsTimer += delta;
             if (fpsTimer >= 0.25) {
@@ -666,6 +859,8 @@
             }
 
             if (isLocked) {
+                updatePlayerMovement(delta);
+
                 totalActiveTime += delta;
                 const m = Math.floor(totalActiveTime / 60);
                 const s = Math.floor(totalActiveTime % 60);
@@ -683,11 +878,10 @@
                 if (beamTimer <= 0 && (!isMouseDown || firingMode !== 'track')) beam.visible = false;
             }
 
-            // Entity Updates
             if (activeEnvironment === 'trainer') {
                 trainerTargets.forEach(t => { if (t.mesh.visible) t.update(delta); });
             } else {
-                enemies.forEach(e => { if (e.mesh.visible) e.update(delta); });
+                enemies.forEach(e => { if (e.group.visible) e.update(delta); });
             }
 
             projectiles.forEach(p => p.update(delta));
