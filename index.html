@@ -123,7 +123,7 @@
         <!-- ROOT MENU -->
         <div id="root-menu" class="menu-card active">
             <h1>CHOOSE SIMULATION</h1>
-            <p>1:1 ZERO-LATENCY ENGINE • WASD + SPACE MOVEMENT</p>
+            <p>1:1 ZERO-LATENCY ENGINE • SOLID COVERS & FULL FREEDOM</p>
             <button class="btn" onclick="showSubMenu('trainer')">1. AIM TRAINER</button><br>
             <button class="btn" onclick="showSubMenu('fps')">2. BAREBONES FPS COMBAT</button>
             <div class="row" style="margin-top: 20px;">
@@ -161,8 +161,8 @@
 
         <!-- FPS COMBAT MENU -->
         <div id="fps-menu" class="menu-card">
-            <h1>COMBAT ARENA</h1>
-            <p>KRUNKER HITBOXES (HEAD / BODY) • WASD MOVEMENT</p>
+            <h1>EXPANDED COMPLEX ARENA</h1>
+            <p>FREE ROAM LANES • SOLID BARRIERS • KRUNKER HITBOXES</p>
             <div class="mode-select">
                 <button class="mode-btn active" id="fps-flick-tab" onclick="setFiringMode('flick')">FLICK (1-TAP HEAD)</button>
                 <button class="mode-btn" id="fps-track-tab" onclick="setFiringMode('track')">TRACKING (BEAM)</button>
@@ -200,7 +200,7 @@
         /* --- THREE.JS ENGINE SETUP --- */
         const container = document.getElementById('canvas-container');
         const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(85, window.innerWidth / window.innerHeight, 0.1, 200);
+        const camera = new THREE.PerspectiveCamera(85, window.innerWidth / window.innerHeight, 0.1, 300);
         camera.rotation.order = 'YXZ';
 
         const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
@@ -214,8 +214,6 @@
         let flickType = 'hitscan';
         let targetSpeedMult = 1.0;
         let projectileVelocity = 160;
-
-        // FIXED: Exact uniform baseline speed for all targets (no random ranges)
         const CONSTANT_TARGET_SPEED = 14.0;
 
         let playerHp = 100;
@@ -225,13 +223,36 @@
         let totalActiveTime = 0, totalTrackingTime = 0;
         let reactionTimes = [];
 
-        /* --- KRUNKER-STYLE WASD + JUMP MOVEMENT --- */
+        /* --- SOLID COLLIDERS POOL --- */
+        const solidBoxes = [];
+        const solidMeshes = [];
+
+        function registerSolidBox(x, y, z, sx, sy, sz, color = 0x242438) {
+            const geo = new THREE.BoxGeometry(sx, sy, sz);
+            const mat = new THREE.MeshBasicMaterial({ color: color, wireframe: true });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(x, y, z);
+            mesh.updateMatrixWorld();
+            fpsGroup.add(mesh);
+            solidMeshes.push(mesh);
+
+            // AABB collider with player radius expansion
+            solidBoxes.push({
+                minX: x - sx / 2, maxX: x + sx / 2,
+                minZ: z - sz / 2, maxZ: z + sz / 2,
+                minY: y - sy / 2, maxY: y + sy / 2
+            });
+            return mesh;
+        }
+
+        /* --- PLAYER MOVEMENT WITH AABB COLLISION RESOLUTION --- */
         const keys = { KeyW: false, KeyA: false, KeyS: false, KeyD: false, Space: false };
         const player = {
-            pos: new THREE.Vector3(0, 0, 14),
+            pos: new THREE.Vector3(0, 0, 36),
             vel: new THREE.Vector3(),
             onGround: true,
-            eyeHeight: 2.2
+            eyeHeight: 2.2,
+            radius: 0.75
         };
 
         window.addEventListener('keydown', (e) => { if (keys.hasOwnProperty(e.code)) keys[e.code] = true; });
@@ -243,7 +264,8 @@
                 return;
             }
 
-            const moveSpeed = 26.0;
+            // Tuned down movement speed for methodical tactical pacing (was 26.0)
+            const moveSpeed = 16.0;
             const inputVec = new THREE.Vector3();
 
             if (keys.KeyW) inputVec.z -= 1;
@@ -257,33 +279,64 @@
                 player.vel.x = inputVec.x * moveSpeed;
                 player.vel.z = inputVec.z * moveSpeed;
             } else {
-                player.vel.x *= Math.max(0, 1 - delta * 12);
-                player.vel.z *= Math.max(0, 1 - delta * 12);
+                player.vel.x *= Math.max(0, 1 - delta * 14);
+                player.vel.z *= Math.max(0, 1 - delta * 14);
             }
 
             if (keys.Space && player.onGround) {
-                player.vel.y = 14.0;
+                player.vel.y = 12.0;
                 player.onGround = false;
             }
-            player.vel.y -= 38.0 * delta;
+            player.vel.y -= 34.0 * delta;
 
-            player.pos.x += player.vel.x * delta;
+            // X-Axis Sweep & Slide Collision against solid covers
+            const nextX = player.pos.x + player.vel.x * delta;
+            let collideX = false;
+            for (let i = 0; i < solidBoxes.length; i++) {
+                const b = solidBoxes[i];
+                if (nextX + player.radius > b.minX && nextX - player.radius < b.maxX &&
+                    player.pos.z + player.radius > b.minZ && player.pos.z - player.radius < b.maxZ &&
+                    player.pos.y + 0.5 < b.maxY) {
+                    collideX = true;
+                    break;
+                }
+            }
+            if (!collideX) player.pos.x = nextX;
+            else player.vel.x = 0;
+
+            // Z-Axis Sweep & Slide Collision against solid covers
+            const nextZ = player.pos.z + player.vel.z * delta;
+            let collideZ = false;
+            for (let i = 0; i < solidBoxes.length; i++) {
+                const b = solidBoxes[i];
+                if (player.pos.x + player.radius > b.minX && player.pos.x - player.radius < b.maxX &&
+                    nextZ + player.radius > b.minZ && nextZ - player.radius < b.maxZ &&
+                    player.pos.y + 0.5 < b.maxY) {
+                    collideZ = true;
+                    break;
+                }
+            }
+            if (!collideZ) player.pos.z = nextZ;
+            else player.vel.z = 0;
+
             player.pos.y += player.vel.y * delta;
-            player.pos.z += player.vel.z * delta;
 
+            // Floor & Jump Landing clamp
             if (player.pos.y <= -2.0) {
                 player.pos.y = -2.0;
                 player.vel.y = 0;
                 player.onGround = true;
             }
 
-            player.pos.x = Math.max(-38, Math.min(38, player.pos.x));
-            player.pos.z = Math.max(-4, Math.min(38, player.pos.z));
+            // Expanded 140x160 meter Arena Bounds: player can walk directly into enemy territory
+            player.pos.x = Math.max(-65, Math.min(65, player.pos.x));
+            player.pos.z = Math.max(-72, Math.min(72, player.pos.z));
 
             camera.position.set(player.pos.x, player.pos.y + player.eyeHeight, player.pos.z);
         }
 
         /* --- MAPS & COVERS --- */
+        // Aim Trainer Wireframe Box
         const trainerBox = new THREE.Mesh(
             new THREE.BoxGeometry(60, 30, 50),
             new THREE.MeshBasicMaterial({ color: 0x181824, wireframe: true })
@@ -291,42 +344,52 @@
         trainerBox.position.set(0, 0, -15);
         scene.add(trainerBox);
 
+        // Huge Complex Multi-Lane Combat Map
         const fpsGroup = new THREE.Group();
-        const arenaFloor = new THREE.Mesh(new THREE.PlaneGeometry(90, 90), new THREE.MeshBasicMaterial({ color: 0x0f0f18, wireframe: true }));
+
+        const arenaFloor = new THREE.Mesh(
+            new THREE.PlaneGeometry(140, 160),
+            new THREE.MeshBasicMaterial({ color: 0x0c0c16, wireframe: true })
+        );
         arenaFloor.rotation.x = -Math.PI / 2;
         arenaFloor.position.set(0, -2.0, 0);
         fpsGroup.add(arenaFloor);
 
-        const arenaBorder = new THREE.Mesh(new THREE.BoxGeometry(90, 25, 90), new THREE.MeshBasicMaterial({ color: 0x15152a, wireframe: true }));
-        arenaBorder.position.set(0, 10.5, 0);
-        fpsGroup.add(arenaBorder);
+        const arenaWalls = new THREE.Mesh(
+            new THREE.BoxGeometry(140, 24, 160),
+            new THREE.MeshBasicMaterial({ color: 0x121226, wireframe: true })
+        );
+        arenaWalls.position.set(0, 10, 0);
+        fpsGroup.add(arenaWalls);
 
-        const playerWallGeo = new THREE.BoxGeometry(16, 4.5, 2.5);
-        const coverMat = new THREE.MeshBasicMaterial({ color: 0x252538, wireframe: true });
-        
-        const playerBunkerLeft = new THREE.Mesh(playerWallGeo, coverMat);
-        playerBunkerLeft.position.set(-14, 0.25, 6);
-        fpsGroup.add(playerBunkerLeft);
+        // Player Spawn Barrier Structures
+        registerSolidBox(-18, 1.25, 30, 18, 6.5, 3.0);
+        registerSolidBox(18, 1.25, 30, 18, 6.5, 3.0);
 
-        const playerBunkerRight = new THREE.Mesh(playerWallGeo, coverMat);
-        playerBunkerRight.position.set(14, 0.25, 6);
-        fpsGroup.add(playerBunkerRight);
+        // Mid-Lane Combat Hubs & Split Partitions
+        registerSolidBox(-32, 2.5, 8, 4.5, 9.0, 24);
+        registerSolidBox(32, 2.5, 8, 4.5, 9.0, 24);
+        registerSolidBox(0, 2.0, 4, 14, 8.0, 4.5);
+        registerSolidBox(-16, 1.5, -14, 12, 7.0, 3.5);
+        registerSolidBox(16, 1.5, -14, 12, 7.0, 3.5);
 
-        const enemyCoverGeo = new THREE.BoxGeometry(4.5, 11, 3.5);
+        // Forward Trenches & Deep Enemy Bunkers
         const enemyCoverPositions = [
-            [-28, 3.5, -28], [-14, 3.5, -34], [0, 3.5, -26], [14, 3.5, -34], [28, 3.5, -28]
+            [-42, 3.0, -48],
+            [-22, 3.0, -56],
+            [0, 3.0, -42],
+            [22, 3.0, -56],
+            [42, 3.0, -48]
         ];
 
         enemyCoverPositions.forEach(p => {
-            const pillar = new THREE.Mesh(enemyCoverGeo, coverMat);
-            pillar.position.set(p[0], p[1], p[2]);
-            fpsGroup.add(pillar);
+            registerSolidBox(p[0], p[1], p[2], 6.0, 10.0, 4.5, 0x30304a);
         });
 
         fpsGroup.visible = false;
         scene.add(fpsGroup);
 
-        /* --- TARGETS (UNIFORM CONSTANT SPEED) --- */
+        /* --- TARGETS (AIM TRAINER) --- */
         const trainerTargets = [];
         const tGeo = new THREE.IcosahedronGeometry(1.0, 1);
         const flickMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc, wireframe: true });
@@ -360,7 +423,6 @@
             }
 
             update(delta) {
-                // Direction changes strictly maintain identical velocity magnitude
                 this.switchTimer -= delta;
                 if (this.switchTimer <= 0) {
                     const angle = Math.random() * Math.PI * 2;
@@ -369,11 +431,9 @@
                     this.switchTimer = 0.8 + Math.random() * 0.8;
                 }
 
-                // Strictly constant displacement: magnitude = CONSTANT_TARGET_SPEED * targetSpeedMult
                 const currentSpeed = CONSTANT_TARGET_SPEED * targetSpeedMult;
                 this.mesh.position.addScaledVector(this.direction, currentSpeed * delta);
 
-                // Clean wall reflections (no acceleration/deceleration)
                 if (this.mesh.position.x > 22 && this.direction.x > 0) this.direction.x *= -1;
                 if (this.mesh.position.x < -22 && this.direction.x < 0) this.direction.x *= -1;
                 if (this.mesh.position.y > 11 && this.direction.y > 0) this.direction.y *= -1;
@@ -400,9 +460,9 @@
             constructor(coverPos, id) {
                 this.group = new THREE.Group();
                 this.coverX = coverPos[0];
-                this.baseY = coverPos[1] - 3.5;
+                this.baseY = -2.0;
                 this.coverZ = coverPos[2];
-                this.peekDir = (id % 2 === 0 ? 3.4 : -3.4);
+                this.peekDir = (id % 2 === 0 ? 4.2 : -4.2);
 
                 this.bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
                 this.bodyMesh.position.y = 1.3;
@@ -453,7 +513,7 @@
                     }
                 }
 
-                // Constant linear peek transition (no dynamic drag decay)
+                // Smooth linear peek in/out of cover
                 const destX = this.isPeeking ? (this.coverX + this.peekDir) : this.coverX;
                 const diff = destX - this.group.position.x;
                 const step = 9.0 * delta;
@@ -462,6 +522,9 @@
                 } else {
                     this.group.position.x += Math.sign(diff) * step;
                 }
+
+                // Face the player directly
+                this.group.lookAt(player.pos.x, this.baseY, player.pos.z);
 
                 if (this.isPeeking && isLocked) {
                     if (!this.hasToken && firingTokensAvailable > 0) {
@@ -485,8 +548,9 @@
                 const losDir = eyePos.clone().sub(enemyHeadPos).normalize();
                 const losDist = enemyHeadPos.distanceTo(eyePos);
 
+                // Raycast against all solid obstacles to check line-of-sight
                 const losRay = new THREE.Raycaster(enemyHeadPos, losDir, 0, losDist);
-                const coverHits = losRay.intersectObjects([playerBunkerLeft, playerBunkerRight]);
+                const coverHits = losRay.intersectObjects(solidMeshes);
 
                 if (coverHits.length === 0) {
                     renderBeam(enemyHeadPos, 0xff0055, 0.08);
@@ -542,6 +606,16 @@
                 const travel = this.mesh.position.clone().sub(prev);
                 const ray = new THREE.Raycaster(prev, travel.clone().normalize(), 0, travel.length());
 
+                // Check solid covers first
+                if (activeEnvironment === 'fps') {
+                    const wallHits = ray.intersectObjects(solidMeshes);
+                    if (wallHits.length > 0) {
+                        this.alive = false;
+                        this.mesh.visible = false;
+                        return;
+                    }
+                }
+
                 let hitPool = [];
                 if (activeEnvironment === 'trainer') {
                     hitPool = trainerTargets.filter(t => t.mesh.visible).map(t => t.mesh);
@@ -559,7 +633,7 @@
                     return;
                 }
 
-                if (this.mesh.position.distanceTo(camera.position) > 120) {
+                if (this.mesh.position.distanceTo(camera.position) > 180) {
                     this.alive = false;
                     this.mesh.visible = false;
                 }
@@ -643,7 +717,7 @@
                 document.getElementById('stat-row').innerHTML = 'ACCURACY: <span id="acc-val">100%</span>';
                 document.getElementById('streak-row').style.display = 'inline';
                 document.getElementById('rt-row').style.display = 'inline';
-                player.pos.set(0, 0, 14);
+                player.pos.set(0, -2, 38);
                 player.vel.set(0, 0, 0);
             }
 
@@ -733,6 +807,8 @@
                     enemies.filter(e => e.group.visible).forEach(e => {
                         pool.push(e.headMesh, e.bodyMesh);
                     });
+                    // Also check solid covers so walls physically block hitscan shots
+                    pool = pool.concat(solidMeshes);
                 }
 
                 const results = raycaster.intersectObjects(pool);
@@ -740,10 +816,17 @@
 
                 if (results.length > 0) {
                     hitEnd.copy(results[0].point);
-                    handleDamageCalculation(results[0].object, hitEnd);
+                    if (results[0].object.userData.parentEnemy || activeEnvironment === 'trainer') {
+                        handleDamageCalculation(results[0].object, hitEnd);
+                    } else {
+                        // Hit a solid wall
+                        streak = 0;
+                        document.getElementById('streak-val').textContent = streak;
+                        document.getElementById('acc-val').textContent = Math.round((hits / shots) * 100) + '%';
+                    }
                 } else {
                     streak = 0;
-                    raycaster.ray.at(50, hitEnd);
+                    raycaster.ray.at(70, hitEnd);
                     document.getElementById('streak-val').textContent = streak;
                     document.getElementById('acc-val').textContent = Math.round((hits / shots) * 100) + '%';
                 }
@@ -766,6 +849,7 @@
                 enemies.filter(e => e.group.visible).forEach(e => {
                     pool.push(e.headMesh, e.bodyMesh);
                 });
+                pool = pool.concat(solidMeshes);
             }
 
             const results = raycaster.intersectObjects(pool);
@@ -773,13 +857,17 @@
 
             if (results.length > 0) {
                 hitEnd.copy(results[0].point);
-                totalTrackingTime += delta;
-                score += Math.round(delta * 800);
-                playTone(280, 0.03);
-                triggerHitmarker();
-                renderBeam(hitEnd, 0xff0055, 0.03);
+                if (results[0].object.userData.parentEnemy || activeEnvironment === 'trainer') {
+                    totalTrackingTime += delta;
+                    score += Math.round(delta * 800);
+                    playTone(280, 0.03);
+                    triggerHitmarker();
+                    renderBeam(hitEnd, 0xff0055, 0.03);
+                } else {
+                    renderBeam(hitEnd, 0x442233, 0.03);
+                }
             } else {
-                raycaster.ray.at(50, hitEnd);
+                raycaster.ray.at(70, hitEnd);
                 renderBeam(hitEnd, 0x442233, 0.03);
             }
 
