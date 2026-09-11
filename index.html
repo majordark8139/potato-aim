@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LIGHTWEIGHT AIM TRAINER</title>
+    <title>LIGHTWEIGHT AIM & COMBAT ARENA</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #08080c; font-family: monospace; }
@@ -33,6 +33,14 @@
         .hm-v { left: 7px; top: 0; width: 2px; height: 16px; }
         .hm-h { top: 7px; left: 0; width: 16px; height: 2px; }
 
+        /* Damage Flash Overlay */
+        #damage-flash {
+            position: absolute; width: 100%; height: 100%;
+            pointer-events: none; z-index: 9;
+            background: rgba(255, 0, 0, 0);
+            transition: background 0.05s ease-out;
+        }
+
         /* Minimal HUD */
         #ui {
             position: absolute; top: 15px; left: 20px;
@@ -42,59 +50,49 @@
         }
         .fps-display { color: #ffff00; }
         .rt-display { color: #ff00ff; }
-        .sub-display { color: #aaa; font-size: 11px; }
+        .hp-display { color: #00ff66; }
 
+        /* Menus */
         #blocker {
             position: absolute; width: 100%; height: 100%;
-            background: rgba(0, 0, 0, 0.85);
+            background: rgba(0, 0, 0, 0.9);
             display: flex; justify-content: center; align-items: center;
             z-index: 100; color: #fff; text-align: center;
         }
-        h1 { color: #00ffcc; font-size: 28px; margin-bottom: 8px; letter-spacing: 2px; }
-        p { color: #aaa; font-size: 12px; margin-bottom: 16px; }
-        
-        .mode-select {
-            display: flex; justify-content: center; gap: 10px; margin-bottom: 12px;
-        }
-        .mode-btn {
-            background: #181824; border: 1px solid #00ffcc; padding: 8px 18px;
-            color: #00ffcc; font-weight: bold; font-family: monospace;
-            cursor: pointer; font-size: 13px; transition: all 0.15s;
-        }
-        .mode-btn.active {
-            background: #00ffcc; color: #000; box-shadow: 0 0 10px rgba(0,255,204,0.4);
-        }
+        .menu-card { display: none; }
+        .menu-card.active { display: block; }
 
-        /* Flick Submenu */
-        #flick-sub-menu {
-            display: flex; justify-content: center; gap: 8px; margin-bottom: 14px;
+        h1 { color: #00ffcc; font-size: 26px; margin-bottom: 6px; letter-spacing: 2px; }
+        p { color: #aaa; font-size: 12px; margin-bottom: 16px; }
+
+        .btn {
+            background: #00ffcc; border: none; padding: 10px 22px;
+            color: #000; font-weight: bold; font-family: monospace;
+            cursor: pointer; font-size: 13px; margin: 4px;
         }
+        .btn:hover { background: #fff; }
+        .btn-secondary { background: #222233; color: #00ffcc; border: 1px solid #00ffcc; }
+        .btn-secondary:hover { background: #00ffcc; color: #000; }
+
+        .mode-select { display: flex; justify-content: center; gap: 8px; margin-bottom: 10px; }
+        .mode-btn {
+            background: #181824; border: 1px solid #00ffcc; padding: 6px 14px;
+            color: #00ffcc; font-weight: bold; font-family: monospace;
+            cursor: pointer; font-size: 12px;
+        }
+        .mode-btn.active { background: #00ffcc; color: #000; }
+
         .sub-btn {
-            background: #101018; border: 1px solid #ff0055; padding: 4px 12px;
+            background: #101018; border: 1px solid #ff0055; padding: 4px 10px;
             color: #ff0055; font-weight: bold; font-family: monospace;
             cursor: pointer; font-size: 11px;
         }
-        .sub-btn.active {
-            background: #ff0055; color: #fff; box-shadow: 0 0 8px rgba(255,0,85,0.4);
-        }
+        .sub-btn.active { background: #ff0055; color: #fff; }
 
-        .btn {
-            background: #00ffcc; border: none; padding: 10px 24px;
-            color: #000; font-weight: bold; font-family: monospace;
-            cursor: pointer; font-size: 14px;
-        }
-        .btn:hover { background: #fff; }
         .row { 
-            margin-top: 10px; 
-            font-size: 12px; 
-            color: #ccc; 
-            display: flex; 
-            gap: 12px; 
-            justify-content: space-between; 
-            align-items: center; 
-            width: 290px;
-            margin-left: auto;
-            margin-right: auto;
+            margin-top: 8px; font-size: 11px; color: #ccc; 
+            display: flex; gap: 10px; justify-content: space-between; 
+            align-items: center; width: 290px; margin-left: auto; margin-right: auto;
         }
         input[type="range"] { accent-color: #00ffcc; cursor: pointer; }
     </style>
@@ -102,6 +100,7 @@
 <body>
 
     <div id="crosshair"></div>
+    <div id="damage-flash"></div>
     <div id="hitmarker">
         <div class="hm hm-v"></div>
         <div class="hm hm-h"></div>
@@ -110,7 +109,8 @@
     <div id="ui">
         FPS: <span id="fps-val" class="fps-display">--</span><br>
         TIME: <span id="time-val">00:00.0</span><br>
-        MODE: <span id="hud-mode">FLICK (HITSCAN)</span><br>
+        SCENE: <span id="hud-scene">TRAINER</span> | <span id="hud-mode">FLICK (HITSCAN)</span><br>
+        <span id="hp-row" style="display:none;">HP: <span id="hp-val" class="hp-display">100</span><br></span>
         SCORE: <span id="score-val">0</span><br>
         <span id="stat-row">ACCURACY: <span id="acc-val">100%</span></span><br>
         <span id="streak-row">STREAK: <span id="streak-val">0</span></span><br>
@@ -118,41 +118,59 @@
     </div>
 
     <div id="blocker">
-        <div>
-            <h1>POTATO-OPTIMIZED AIM</h1>
-            <p>CHOOSE TRAINING PROTOCOL</p>
-
-            <div class="mode-select">
-                <button class="mode-btn active" id="flick-tab" onclick="switchMode('flick')">FLICK</button>
-                <button class="mode-btn" id="track-tab" onclick="switchMode('track')">TRACKING</button>
-            </div>
-
-            <!-- Flick Submode Toggle -->
-            <div id="flick-sub-menu">
-                <button class="sub-btn active" id="type-hitscan" onclick="switchFlickType('hitscan')">HITSCAN</button>
-                <button class="sub-btn" id="type-proj" onclick="switchFlickType('projectile')">PROJECTILE</button>
-            </div>
-
-            <button class="btn" id="play-btn">START</button>
-            
-            <div class="row">
+        <!-- 1. ROOT HUB MENU -->
+        <div id="root-menu" class="menu-card active">
+            <h1>CHOOSE SIMULATION</h1>
+            <p>1:1 ZERO-LATENCY ENGINE</p>
+            <button class="btn" onclick="showSubMenu('trainer')">1. AIM TRAINER</button><br>
+            <button class="btn" onclick="showSubMenu('fps')">2. BAREBONES FPS COMBAT</button>
+            <div class="row" style="margin-top: 20px;">
                 <label for="sens">Sensitivity:</label>
                 <input type="range" id="sens" min="0.2" max="3.0" step="0.1" value="1.0">
                 <span id="sens-val">1.0</span>
             </div>
+        </div>
 
+        <!-- 2. AIM TRAINER CONFIG MENU -->
+        <div id="trainer-menu" class="menu-card">
+            <h1>AIM TRAINER CONFIG</h1>
+            <p>ISOLATED TARGET DRILLS</p>
+            <div class="mode-select">
+                <button class="mode-btn active" id="flick-tab" onclick="setFiringMode('flick')">FLICK</button>
+                <button class="mode-btn" id="track-tab" onclick="setFiringMode('track')">TRACKING</button>
+            </div>
+            <div id="flick-sub-menu" class="mode-select">
+                <button class="sub-btn active" id="type-hitscan" onclick="setFlickType('hitscan')">HITSCAN</button>
+                <button class="sub-btn" id="type-proj" onclick="setFlickType('projectile')">PROJECTILE</button>
+            </div>
+            <button class="btn" onclick="startGame('trainer')">START DRILL</button>
+            <button class="btn btn-secondary" onclick="showSubMenu('root')">BACK</button>
             <div class="row">
                 <label for="speed">Target Speed:</label>
                 <input type="range" id="speed" min="0.2" max="3.0" step="0.1" value="1.0">
                 <span id="speed-val">1.0x</span>
             </div>
-
-            <!-- Projectile Speed Slider (Visible only for projectile flick mode) -->
             <div class="row" id="proj-row">
                 <label for="proj-speed">Proj Speed (m/s):</label>
                 <input type="range" id="proj-speed" min="60" max="350" step="10" value="160">
                 <span id="proj-val">160 (Web Cluster)</span>
             </div>
+        </div>
+
+        <!-- 3. BAREBONES FPS COMBAT MENU -->
+        <div id="fps-menu" class="menu-card">
+            <h1>COMBAT ARENA</h1>
+            <p>ENEMIES PEEK COVER & FIRE AT YOU</p>
+            <div class="mode-select">
+                <button class="mode-btn active" id="fps-flick-tab" onclick="setFiringMode('flick')">FLICK (POP ENEMIES)</button>
+                <button class="mode-btn" id="fps-track-tab" onclick="setFiringMode('track')">TRACKING (MELT BEAM)</button>
+            </div>
+            <div id="fps-flick-sub" class="mode-select">
+                <button class="sub-btn active" id="fps-type-hitscan" onclick="setFlickType('hitscan')">HITSCAN</button>
+                <button class="sub-btn" id="fps-type-proj" onclick="setFlickType('projectile')">WEB CLUSTER</button>
+            </div>
+            <button class="btn" onclick="startGame('fps')">DEPLOY TO ARENA</button>
+            <button class="btn btn-secondary" onclick="showSubMenu('root')">BACK</button>
         </div>
     </div>
 
@@ -161,26 +179,25 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
     <script>
-        /* --- AUDIO ENGINE --- */
+        /* --- AUDIO SYNTHESIS --- */
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        function playSound(freq, duration) {
+        function playTone(freq, duration, type = 'triangle', vol = 0.18) {
             if (audioCtx.state === 'suspended') audioCtx.resume();
             const osc = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
-            osc.type = 'triangle';
+            osc.type = type;
             osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-            gain.gain.setValueAtTime(0.18, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+            gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
             osc.connect(gain);
             gain.connect(audioCtx.destination);
             osc.start();
             osc.stop(audioCtx.currentTime + duration);
         }
 
-        /* --- THREE.JS SCENE SETUP --- */
+        /* --- THREE.JS ENGINE SETUP --- */
         const container = document.getElementById('canvas-container');
         const scene = new THREE.Scene();
-
         const camera = new THREE.PerspectiveCamera(85, window.innerWidth / window.innerHeight, 0.1, 100);
         camera.rotation.order = 'YXZ';
 
@@ -189,40 +206,68 @@
         renderer.setPixelRatio(1);
         container.appendChild(renderer.domElement);
 
-        const arena = new THREE.Mesh(
+        /* --- STATE --- */
+        let activeEnvironment = 'trainer'; // 'trainer' or 'fps'
+        let firingMode = 'flick'; // 'flick' or 'track'
+        let flickType = 'hitscan'; // 'hitscan' or 'projectile'
+        let targetSpeedMult = 1.0;
+        let projectileVelocity = 160;
+
+        let playerHp = 100;
+        let isLocked = false, isMouseDown = false;
+        let sens = 0.002, pitch = 0, yaw = 0;
+        let score = 0, hits = 0, shots = 0, streak = 0;
+        let totalActiveTime = 0, totalTrackingTime = 0;
+        let reactionTimes = [];
+
+        /* --- ENVIRONMENTS: MAP GEOMETRIES --- */
+        // Trainer Simple Wireframe Box
+        const trainerBox = new THREE.Mesh(
             new THREE.BoxGeometry(60, 30, 50),
             new THREE.MeshBasicMaterial({ color: 0x181824, wireframe: true })
         );
-        arena.position.set(0, 0, -15);
-        scene.add(arena);
+        trainerBox.position.set(0, 0, -15);
+        scene.add(trainerBox);
 
-        /* --- MODES & REACTION TIMING --- */
-        let currentMode = 'flick';
-        let flickType = 'hitscan'; // 'hitscan' or 'projectile'
-        let speedMultiplier = 1.0;
-        let projectileVelocity = 160; // Marvel Rivals Spider-Man Web Cluster baseline
+        // FPS Map: Floor, Back wall & Cover Pillars
+        const fpsGroup = new THREE.Group();
+        const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 40), new THREE.MeshBasicMaterial({ color: 0x12121a, wireframe: true }));
+        floor.rotation.x = -Math.PI / 2;
+        floor.position.set(0, -5, -15);
+        fpsGroup.add(floor);
 
-        const targetGeo = new THREE.IcosahedronGeometry(1.0, 1);
+        const coverGeo = new THREE.BoxGeometry(3.5, 9, 3);
+        const coverMat = new THREE.MeshBasicMaterial({ color: 0x222238, wireframe: true });
+        const coverPositions = [
+            [-14, -0.5, -16], [-5, -0.5, -22], [5, -0.5, -20], [15, -0.5, -17],
+            [-9, -0.5, -11], [9, -0.5, -12]
+        ];
+
+        coverPositions.forEach(p => {
+            const pillar = new THREE.Mesh(coverGeo, coverMat);
+            pillar.position.set(p[0], p[1], p[2]);
+            fpsGroup.add(pillar);
+        });
+        fpsGroup.visible = false;
+        scene.add(fpsGroup);
+
+        /* --- TARGETS (TRAINER) --- */
+        const trainerTargets = [];
+        const tGeo = new THREE.IcosahedronGeometry(1.0, 1);
         const flickMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc, wireframe: true });
         const trackMat = new THREE.MeshBasicMaterial({ color: 0xff0055, wireframe: true });
-        const targets = [];
 
-        class Target {
+        class TrainerTarget {
             constructor() {
-                this.mesh = new THREE.Mesh(targetGeo, flickMat);
+                this.mesh = new THREE.Mesh(tGeo, flickMat);
                 this.spawnTime = performance.now();
                 scene.add(this.mesh);
                 this.reset();
-                targets.push(this);
+                trainerTargets.push(this);
             }
-
             reset() {
-                this.mesh.position.set(
-                    (Math.random() - 0.5) * 35,
-                    (Math.random() - 0.5) * 16,
-                    -12 - Math.random() * 18
-                );
-                const baseSpeed = currentMode === 'track' ? 14 + Math.random() * 6 : 9 + Math.random() * 6;
+                this.mesh.position.set((Math.random() - 0.5) * 35, (Math.random() - 0.5) * 16, -12 - Math.random() * 18);
+                const baseSpeed = firingMode === 'track' ? 14 + Math.random() * 6 : 9 + Math.random() * 6;
                 const angle = Math.random() * Math.PI * 2;
                 this.velX = Math.cos(angle) * baseSpeed;
                 this.velY = Math.sin(angle) * baseSpeed * 0.7;
@@ -230,31 +275,104 @@
                 this.switchTimer = 0.3 + Math.random() * 0.7;
                 this.spawnTime = performance.now();
             }
-
             update(delta) {
-                this.switchTimer -= delta * speedMultiplier;
+                this.switchTimer -= delta * targetSpeedMult;
                 if (this.switchTimer <= 0) {
                     this.velX += (Math.random() - 0.5) * 14;
                     this.velY += (Math.random() - 0.5) * 12;
                     this.switchTimer = 0.3 + Math.random() * 0.6;
                 }
-
-                this.mesh.position.x += this.velX * delta * speedMultiplier;
-                this.mesh.position.y += this.velY * delta * speedMultiplier;
-                this.mesh.position.z += this.velZ * delta * speedMultiplier;
+                this.mesh.position.x += this.velX * delta * targetSpeedMult;
+                this.mesh.position.y += this.velY * delta * targetSpeedMult;
+                this.mesh.position.z += this.velZ * delta * targetSpeedMult;
 
                 if (this.mesh.position.x > 22 || this.mesh.position.x < -22) this.velX *= -1;
                 if (this.mesh.position.y > 11 || this.mesh.position.y < -11) this.velY *= -1;
                 if (this.mesh.position.z > -8 || this.mesh.position.z < -30) this.velZ *= -1;
 
-                this.mesh.rotation.x += delta * 3 * speedMultiplier;
-                this.mesh.rotation.y += delta * 3 * speedMultiplier;
+                this.mesh.rotation.x += delta * 3 * targetSpeedMult;
+                this.mesh.rotation.y += delta * 3 * targetSpeedMult;
             }
         }
+        for (let i = 0; i < 4; i++) new TrainerTarget();
 
-        for (let i = 0; i < 4; i++) new Target();
+        /* --- ENEMIES (FPS COMBAT: PEEK COVER & SHOOT) --- */
+        const enemies = [];
+        const enemyGeo = new THREE.CylinderGeometry(0.8, 0.8, 2.5, 8);
+        const enemyMat = new THREE.MeshBasicMaterial({ color: 0xff2244, wireframe: true });
 
-        /* --- PROJECTILE POOL (LIGHTWEIGHT) --- */
+        class FpsEnemy {
+            constructor(coverPos, id) {
+                this.mesh = new THREE.Mesh(enemyGeo, enemyMat);
+                this.coverX = coverPos[0];
+                this.baseY = coverPos[1];
+                this.coverZ = coverPos[2];
+                this.peekDir = id % 2 === 0 ? 2.5 : -2.5;
+                this.mesh.position.set(this.coverX, this.baseY, this.coverZ);
+                this.isPeeking = false;
+                this.stateTimer = 1 + Math.random() * 2;
+                this.shootCooldown = 0.8 + Math.random();
+                this.hp = 60;
+                this.spawnTime = performance.now();
+                this.mesh.visible = false;
+                scene.add(this.mesh);
+                enemies.push(this);
+            }
+            reset() {
+                this.hp = 60;
+                this.isPeeking = false;
+                this.mesh.position.set(this.coverX, this.baseY, this.coverZ);
+                this.stateTimer = 1 + Math.random() * 2;
+            }
+            update(delta) {
+                this.stateTimer -= delta;
+                if (this.stateTimer <= 0) {
+                    this.isPeeking = !this.isPeeking;
+                    this.stateTimer = this.isPeeking ? (1.5 + Math.random() * 1.5) : (1.0 + Math.random() * 2.0);
+                    if (this.isPeeking) {
+                        this.spawnTime = performance.now();
+                        this.shootCooldown = 0.6 + Math.random() * 0.5; // Reaction delay before shooting you
+                    }
+                }
+
+                // Smooth interpolate out of and back into cover
+                const destX = this.isPeeking ? (this.coverX + this.peekDir) : this.coverX;
+                this.mesh.position.x += (destX - this.mesh.position.x) * 8 * delta;
+
+                // Enemy shooting logic while peeking
+                if (this.isPeeking && isLocked) {
+                    this.shootCooldown -= delta;
+                    if (this.shootCooldown <= 0) {
+                        this.fireAtPlayer();
+                        this.shootCooldown = 1.2 + Math.random() * 0.8;
+                    }
+                }
+            }
+            fireAtPlayer() {
+                // Enemy shoots a red tracer beam at the player
+                renderBeam(this.mesh.position, 0xff0000, 0.08);
+                playTone(180, 0.08, 'sawtooth', 0.25);
+                playerHp -= 15;
+                flashDamage();
+                document.getElementById('hp-val').textContent = Math.max(0, playerHp);
+                if (playerHp <= 0) {
+                    playerHp = 100;
+                    document.getElementById('hp-val').textContent = 100;
+                    streak = 0;
+                    document.getElementById('streak-val').textContent = 0;
+                    playTone(90, 0.3, 'sawtooth', 0.4);
+                }
+            }
+        }
+        coverPositions.forEach((pos, i) => new FpsEnemy(pos, i));
+
+        function flashDamage() {
+            const overlay = document.getElementById('damage-flash');
+            overlay.style.background = 'rgba(255, 0, 0, 0.35)';
+            setTimeout(() => overlay.style.background = 'rgba(255, 0, 0, 0)', 60);
+        }
+
+        /* --- PROJECTILES POOL --- */
         const projectiles = [];
         const projGeo = new THREE.BoxGeometry(0.3, 0.3, 0.9);
         const projMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
@@ -265,57 +383,42 @@
                 this.mesh.visible = false;
                 this.velocity = new THREE.Vector3();
                 this.alive = false;
-                this.spawnTime = 0;
                 scene.add(this.mesh);
                 projectiles.push(this);
             }
-
             fire(origin, direction, speed) {
                 this.mesh.position.copy(origin);
                 this.velocity.copy(direction).multiplyScalar(speed);
                 this.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), direction);
                 this.alive = true;
                 this.mesh.visible = true;
-                this.spawnTime = performance.now();
             }
-
             update(delta) {
                 if (!this.alive) return;
-
-                const prevPos = this.mesh.position.clone();
+                const prev = this.mesh.position.clone();
                 this.mesh.position.addScaledVector(this.velocity, delta);
 
-                // Continuous Raycast between steps to avoid high-speed phasing
-                const travelVec = this.mesh.position.clone().sub(prevPos);
-                const travelDist = travelVec.length();
-                const dir = travelVec.normalize();
-                
-                const ray = new THREE.Raycaster(prevPos, dir, 0, travelDist);
-                const activeMeshes = targets.filter(t => t.mesh.visible).map(t => t.mesh);
-                const hits = ray.intersectObjects(activeMeshes);
+                const travel = this.mesh.position.clone().sub(prev);
+                const ray = new THREE.Raycaster(prev, travel.clone().normalize(), 0, travel.length());
+                const targetPool = activeEnvironment === 'trainer' ? trainerTargets.filter(t => t.mesh.visible) : enemies.filter(e => e.mesh.visible);
+                const hits = ray.intersectObjects(targetPool.map(t => t.mesh));
 
                 if (hits.length > 0) {
-                    const hitObj = targets.find(t => t.mesh === hits[0].object);
+                    const hitObj = targetPool.find(t => t.mesh === hits[0].object);
                     onTargetHit(hitObj, hits[0].point);
-                    this.deactivate();
+                    this.alive = false;
+                    this.mesh.visible = false;
                     return;
                 }
-
-                // Cull out-of-bounds
-                if (this.mesh.position.length() > 60 || this.mesh.position.z > 2 || (performance.now() - this.spawnTime) > 2000) {
-                    this.deactivate();
+                if (this.mesh.position.length() > 60 || this.mesh.position.z > 2) {
+                    this.alive = false;
+                    this.mesh.visible = false;
                 }
             }
-
-            deactivate() {
-                this.alive = false;
-                this.mesh.visible = false;
-            }
         }
-
         for (let i = 0; i < 15; i++) new Projectile();
 
-        /* --- BEAM (FOR HITSCAN / TRACKING) --- */
+        /* --- BEAM (INSTANT HITSCAN & TRACKING) --- */
         const beamGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
         const beamMat = new THREE.LineBasicMaterial({ color: 0x00ffff });
         const beam = new THREE.Line(beamGeo, beamMat);
@@ -334,127 +437,122 @@
             beamTimer = duration;
         }
 
-        /* --- UI & MODE SWITCHING --- */
-        const flickSubMenu = document.getElementById('flick-sub-menu');
-        const projRow = document.getElementById('proj-row');
-
-        function updateHudTitle() {
-            if (currentMode === 'track') {
-                document.getElementById('hud-mode').textContent = 'TRACKING';
-            } else {
-                document.getElementById('hud-mode').textContent = 
-                    flickType === 'hitscan' ? 'FLICK (HITSCAN)' : 'FLICK (WEB CLUSTER)';
-            }
+        /* --- UI & MENUS CONTROLLER --- */
+        function showSubMenu(menuId) {
+            document.querySelectorAll('.menu-card').forEach(m => m.classList.remove('active'));
+            document.getElementById(menuId + '-menu').classList.add('active');
         }
 
-        function configureMode() {
-            if (currentMode === 'flick') {
-                flickSubMenu.style.display = 'flex';
-                projRow.style.display = flickType === 'projectile' ? 'flex' : 'none';
-                targets.forEach((t) => {
-                    t.mesh.visible = true;
-                    t.mesh.material = flickMat;
-                    t.reset();
-                });
+        function setFiringMode(mode) {
+            firingMode = mode;
+            ['flick-tab', 'track-tab', 'fps-flick-tab', 'fps-track-tab'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.classList.toggle('active', id.includes(mode));
+            });
+            document.getElementById('flick-sub-menu').style.display = mode === 'flick' ? 'flex' : 'none';
+            document.getElementById('fps-flick-sub').style.display = mode === 'flick' ? 'flex' : 'none';
+            document.getElementById('proj-row').style.display = (mode === 'flick' && flickType === 'projectile') ? 'flex' : 'none';
+        }
+
+        function setFlickType(type) {
+            flickType = type;
+            ['type-hitscan', 'type-proj', 'fps-type-hitscan', 'fps-type-proj'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.classList.toggle('active', id.includes(type === 'hitscan' ? 'hitscan' : 'proj'));
+            });
+            document.getElementById('proj-row').style.display = type === 'projectile' ? 'flex' : 'none';
+        }
+
+        function startGame(env) {
+            activeEnvironment = env;
+            trainerBox.visible = (env === 'trainer');
+            fpsGroup.visible = (env === 'fps');
+
+            document.getElementById('hud-scene').textContent = env.toUpperCase();
+            document.getElementById('hp-row').style.display = (env === 'fps') ? 'inline' : 'none';
+            document.getElementById('hud-mode').textContent = firingMode === 'track' ? 'TRACKING' : `FLICK (${flickType.toUpperCase()})`;
+
+            // Configure Environment Entities
+            if (env === 'trainer') {
+                enemies.forEach(e => e.mesh.visible = false);
+                if (firingMode === 'flick') {
+                    trainerTargets.forEach(t => { t.mesh.visible = true; t.mesh.material = flickMat; t.reset(); });
+                    document.getElementById('stat-row').innerHTML = 'ACCURACY: <span id="acc-val">100%</span>';
+                    document.getElementById('streak-row').style.display = 'inline';
+                    document.getElementById('rt-row').style.display = 'inline';
+                } else {
+                    trainerTargets[0].mesh.visible = true;
+                    trainerTargets[0].mesh.material = trackMat;
+                    trainerTargets[0].reset();
+                    for (let i = 1; i < trainerTargets.length; i++) trainerTargets[i].mesh.visible = false;
+                    document.getElementById('stat-row').innerHTML = 'TRACK RATE: <span id="acc-val">0%</span>';
+                    document.getElementById('streak-row').style.display = 'none';
+                    document.getElementById('rt-row').style.display = 'none';
+                }
+            } else {
+                // FPS Combat
+                trainerTargets.forEach(t => t.mesh.visible = false);
+                enemies.forEach(e => { e.mesh.visible = true; e.reset(); });
                 document.getElementById('stat-row').innerHTML = 'ACCURACY: <span id="acc-val">100%</span>';
                 document.getElementById('streak-row').style.display = 'inline';
                 document.getElementById('rt-row').style.display = 'inline';
-            } else {
-                flickSubMenu.style.display = 'none';
-                projRow.style.display = 'none';
-                targets[0].mesh.visible = true;
-                targets[0].mesh.material = trackMat;
-                targets[0].reset();
-                for (let i = 1; i < targets.length; i++) targets[i].mesh.visible = false;
-                document.getElementById('stat-row').innerHTML = 'TRACK RATE: <span id="acc-val">0%</span>';
-                document.getElementById('streak-row').style.display = 'none';
-                document.getElementById('rt-row').style.display = 'none';
             }
-            updateHudTitle();
+
             resetStats();
-        }
-
-        function switchMode(mode) {
-            currentMode = mode;
-            document.getElementById('flick-tab').classList.toggle('active', mode === 'flick');
-            document.getElementById('track-tab').classList.toggle('active', mode === 'track');
-            configureMode();
-        }
-
-        function switchFlickType(type) {
-            flickType = type;
-            document.getElementById('type-hitscan').classList.toggle('active', type === 'hitscan');
-            document.getElementById('type-proj').classList.toggle('active', type === 'projectile');
-            projRow.style.display = type === 'projectile' ? 'flex' : 'none';
-            updateHudTitle();
-            resetStats();
-        }
-
-        /* --- STATS, REACTION TIME & SCORING --- */
-        let score = 0, hits = 0, shots = 0, streak = 0;
-        let totalActiveTime = 0, totalTrackingTime = 0;
-        let reactionTimes = [];
-
-        const timeEl = document.getElementById('time-val');
-        const scoreEl = document.getElementById('score-val');
-        const hitmarker = document.getElementById('hitmarker');
-        const rtEl = document.getElementById('rt-val');
-        const avgRtEl = document.getElementById('avg-rt-val');
-        let hmTimer = null;
-
-        function triggerHitmarker() {
-            hitmarker.style.display = 'block';
-            clearTimeout(hmTimer);
-            hmTimer = setTimeout(() => hitmarker.style.display = 'none', 45);
+            requestRawPointerLock();
         }
 
         function resetStats() {
             score = 0; hits = 0; shots = 0; streak = 0;
-            totalActiveTime = 0; totalTrackingTime = 0;
+            totalActiveTime = 0; totalTrackingTime = 0; playerHp = 100;
             reactionTimes = [];
-            scoreEl.textContent = '0';
-            timeEl.textContent = '00:00.0';
-            rtEl.textContent = '-- ms';
-            avgRtEl.textContent = '-- ms';
-            const accEl = document.getElementById('acc-val');
-            if (accEl) accEl.textContent = currentMode === 'flick' ? '100%' : '0%';
-            const streakEl = document.getElementById('streak-val');
-            if (streakEl) streakEl.textContent = '0';
+            document.getElementById('score-val').textContent = '0';
+            document.getElementById('time-val').textContent = '00:00.0';
+            document.getElementById('rt-val').textContent = '-- ms';
+            document.getElementById('avg-rt-val').textContent = '-- ms';
+            document.getElementById('hp-val').textContent = '100';
+            document.getElementById('acc-val').textContent = firingMode === 'flick' ? '100%' : '0%';
+            document.getElementById('streak-val').textContent = '0';
+        }
+
+        /* --- SHOOTING & COMBAT LOGIC --- */
+        const raycaster = new THREE.Raycaster();
+        const center = new THREE.Vector2(0, 0);
+
+        function triggerHitmarker() {
+            const hm = document.getElementById('hitmarker');
+            hm.style.display = 'block';
+            setTimeout(() => hm.style.display = 'none', 45);
         }
 
         function onTargetHit(targetObj, hitPoint) {
             const rt = Math.round(performance.now() - targetObj.spawnTime);
             reactionTimes.push(rt);
-            const avgRt = Math.round(reactionTimes.reduce((a, b) => a + b, 0) / reactionTimes.length);
-            rtEl.textContent = rt + ' ms';
-            avgRtEl.textContent = avgRt + ' ms';
+            document.getElementById('rt-val').textContent = rt + ' ms';
+            document.getElementById('avg-rt-val').textContent = Math.round(reactionTimes.reduce((a, b) => a + b, 0) / reactionTimes.length) + ' ms';
 
-            hits++;
-            streak++;
+            hits++; streak++;
             score += 100 + (streak * 10);
-            playSound(500, 0.05);
+            playTone(520, 0.05);
             triggerHitmarker();
             targetObj.reset();
 
-            scoreEl.textContent = score;
+            document.getElementById('score-val').textContent = score;
             document.getElementById('acc-val').textContent = Math.round((hits / shots) * 100) + '%';
             document.getElementById('streak-val').textContent = streak;
         }
 
-        const raycaster = new THREE.Raycaster();
-        const center = new THREE.Vector2(0, 0);
-
-        function handleFlickFire() {
+        function fireFlick() {
             shots++;
             if (flickType === 'hitscan') {
                 raycaster.setFromCamera(center, camera);
-                const activeMeshes = targets.filter(t => t.mesh.visible).map(t => t.mesh);
-                const hitResults = raycaster.intersectObjects(activeMeshes);
+                const pool = activeEnvironment === 'trainer' ? trainerTargets.filter(t => t.mesh.visible) : enemies.filter(e => e.mesh.visible);
+                const results = raycaster.intersectObjects(pool.map(t => t.mesh));
                 const hitEnd = new THREE.Vector3();
 
-                if (hitResults.length > 0) {
-                    const hitObj = targets.find(t => t.mesh === hitResults[0].object);
-                    hitEnd.copy(hitResults[0].point);
+                if (results.length > 0) {
+                    const hitObj = pool.find(t => t.mesh === results[0].object);
+                    hitEnd.copy(results[0].point);
                     onTargetHit(hitObj, hitEnd);
                 } else {
                     streak = 0;
@@ -464,26 +562,25 @@
                 }
                 renderBeam(hitEnd, 0x00ffff, 0.04);
             } else {
-                // Projectile firing
                 const origin = new THREE.Vector3(0.2, -0.2, -0.4).applyMatrix4(camera.matrixWorld);
                 const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
-                
                 const p = projectiles.find(proj => !proj.alive);
                 if (p) p.fire(origin, dir, projectileVelocity);
-                playSound(700, 0.02);
+                playTone(720, 0.02);
             }
         }
 
-        function handleTrackingTick(delta) {
+        function fireTrackingTick(delta) {
             raycaster.setFromCamera(center, camera);
-            const hitResults = raycaster.intersectObject(targets[0].mesh);
+            const pool = activeEnvironment === 'trainer' ? [trainerTargets[0].mesh] : enemies.filter(e => e.mesh.visible).map(e => e.mesh);
+            const results = raycaster.intersectObjects(pool);
             const hitEnd = new THREE.Vector3();
 
-            if (hitResults.length > 0) {
-                hitEnd.copy(hitResults[0].point);
+            if (results.length > 0) {
+                hitEnd.copy(results[0].point);
                 totalTrackingTime += delta;
                 score += Math.round(delta * 800);
-                playSound(280, 0.03);
+                playTone(280, 0.03);
                 triggerHitmarker();
                 renderBeam(hitEnd, 0xff0055, 0.03);
             } else {
@@ -491,55 +588,28 @@
                 renderBeam(hitEnd, 0x442233, 0.03);
             }
 
-            scoreEl.textContent = score;
-            const trackPct = totalActiveTime > 0 ? Math.round((totalTrackingTime / totalActiveTime) * 100) : 0;
-            document.getElementById('acc-val').textContent = trackPct + '%';
+            document.getElementById('score-val').textContent = score;
+            const rate = totalActiveTime > 0 ? Math.round((totalTrackingTime / totalActiveTime) * 100) : 0;
+            document.getElementById('acc-val').textContent = rate + '%';
         }
 
-        /* --- CONTROLS & RAW POINTER LOCK --- */
-        let isLocked = false, isMouseDown = false;
-        let sens = 0.002, pitch = 0, yaw = 0;
-
-        const blocker = document.getElementById('blocker');
-        const playBtn = document.getElementById('play-btn');
-
-        // Sensitivity
-        document.getElementById('sens').addEventListener('input', (e) => {
-            const v = parseFloat(e.target.value);
-            document.getElementById('sens-val').textContent = v.toFixed(1);
-            sens = 0.002 * v;
-        });
-
-        // Target Speed
-        document.getElementById('speed').addEventListener('input', (e) => {
-            speedMultiplier = parseFloat(e.target.value);
-            document.getElementById('speed-val').textContent = speedMultiplier.toFixed(1) + 'x';
-        });
-
-        // Projectile Speed Slider
-        document.getElementById('proj-speed').addEventListener('input', (e) => {
-            projectileVelocity = parseInt(e.target.value);
-            const label = projectileVelocity === 160 ? '160 (Web Cluster)' : `${projectileVelocity} m/s`;
-            document.getElementById('proj-val').textContent = label;
-        });
-
-        playBtn.addEventListener('click', () => {
+        /* --- CONTROLS & POINTER LOCK --- */
+        function requestRawPointerLock() {
             const promise = document.body.requestPointerLock({ unadjustedMovement: true });
-            if (promise && promise.catch) {
-                promise.catch(() => document.body.requestPointerLock());
-            }
-        });
+            if (promise && promise.catch) promise.catch(() => document.body.requestPointerLock());
+        }
 
         document.addEventListener('pointerlockchange', () => {
             if (document.pointerLockElement === document.body) {
                 isLocked = true;
-                blocker.style.display = 'none';
-                targets.forEach(t => t.spawnTime = performance.now());
+                document.getElementById('blocker').style.display = 'none';
+                trainerTargets.forEach(t => t.spawnTime = performance.now());
+                enemies.forEach(e => e.spawnTime = performance.now());
             } else {
                 isLocked = false;
                 isMouseDown = false;
                 beam.visible = false;
-                blocker.style.display = 'flex';
+                document.getElementById('blocker').style.display = 'flex';
             }
         });
 
@@ -555,7 +625,7 @@
         window.addEventListener('mousedown', (e) => {
             if (e.button === 0 && isLocked) {
                 isMouseDown = true;
-                if (currentMode === 'flick') handleFlickFire();
+                if (firingMode === 'flick') fireFlick();
             }
         });
 
@@ -563,60 +633,64 @@
             if (e.button === 0) isMouseDown = false;
         });
 
-        /* --- FPS COUNTER & LOOP --- */
+        // Sliders
+        document.getElementById('sens').addEventListener('input', (e) => {
+            sens = 0.002 * parseFloat(e.target.value);
+            document.getElementById('sens-val').textContent = parseFloat(e.target.value).toFixed(1);
+        });
+        document.getElementById('speed').addEventListener('input', (e) => {
+            targetSpeedMult = parseFloat(e.target.value);
+            document.getElementById('speed-val').textContent = targetSpeedMult.toFixed(1) + 'x';
+        });
+        document.getElementById('proj-speed').addEventListener('input', (e) => {
+            projectileVelocity = parseInt(e.target.value);
+            document.getElementById('proj-val').textContent = projectileVelocity === 160 ? '160 (Web Cluster)' : `${projectileVelocity} m/s`;
+        });
+
+        /* --- ENGINE LOOP --- */
         let lastTime = performance.now();
         let frameCount = 0, fpsTimer = 0;
-        const fpsEl = document.getElementById('fps-val');
 
         function animate(now) {
             requestAnimationFrame(animate);
-
             const delta = Math.min((now - lastTime) / 1000, 0.05);
             lastTime = now;
 
-            // Accurate Frame Counter
+            // Frame Counter
             frameCount++;
             fpsTimer += delta;
             if (fpsTimer >= 0.25) {
-                fpsEl.textContent = Math.round(frameCount / fpsTimer);
+                document.getElementById('fps-val').textContent = Math.round(frameCount / fpsTimer);
                 frameCount = 0;
                 fpsTimer = 0;
             }
 
             if (isLocked) {
                 totalActiveTime += delta;
-                const minutes = Math.floor(totalActiveTime / 60);
-                const seconds = Math.floor(totalActiveTime % 60);
-                const tenths = Math.floor((totalActiveTime * 10) % 10);
-                timeEl.textContent = 
-                    String(minutes).padStart(2, '0') + ':' + 
-                    String(seconds).padStart(2, '0') + '.' + tenths;
+                const m = Math.floor(totalActiveTime / 60);
+                const s = Math.floor(totalActiveTime % 60);
+                const t = Math.floor((totalActiveTime * 10) % 10);
+                document.getElementById('time-val').textContent = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0') + '.' + t;
 
-                if (currentMode === 'track') {
-                    if (isMouseDown) handleTrackingTick(delta);
+                if (firingMode === 'track') {
+                    if (isMouseDown) fireTrackingTick(delta);
                     else beam.visible = false;
                 }
             }
 
             if (beamTimer > 0) {
                 beamTimer -= delta;
-                if (beamTimer <= 0 && (!isMouseDown || currentMode !== 'track')) {
-                    beam.visible = false;
-                }
+                if (beamTimer <= 0 && (!isMouseDown || firingMode !== 'track')) beam.visible = false;
             }
 
-            // Update Projectiles
-            for (let i = 0; i < projectiles.length; i++) {
-                projectiles[i].update(delta);
+            // Entity Updates
+            if (activeEnvironment === 'trainer') {
+                trainerTargets.forEach(t => { if (t.mesh.visible) t.update(delta); });
+            } else {
+                enemies.forEach(e => { if (e.mesh.visible) e.update(delta); });
             }
 
-            // Update Targets
-            for (let i = 0; i < targets.length; i++) {
-                if (targets[i].mesh.visible) {
-                    targets[i].update(delta);
-                }
-            }
-
+            projectiles.forEach(p => p.update(delta));
             renderer.render(scene, camera);
         }
 
@@ -626,7 +700,6 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
 
-        configureMode();
         requestAnimationFrame(animate);
     </script>
 </body>
