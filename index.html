@@ -41,6 +41,8 @@
             line-height: 1.6;
         }
         .fps-display { color: #ffff00; }
+        .rt-display { color: #ff00ff; }
+        .sub-display { color: #aaa; font-size: 11px; }
 
         #blocker {
             position: absolute; width: 100%; height: 100%;
@@ -49,10 +51,10 @@
             z-index: 100; color: #fff; text-align: center;
         }
         h1 { color: #00ffcc; font-size: 28px; margin-bottom: 8px; letter-spacing: 2px; }
-        p { color: #aaa; font-size: 12px; margin-bottom: 20px; }
+        p { color: #aaa; font-size: 12px; margin-bottom: 16px; }
         
         .mode-select {
-            display: flex; justify-content: center; gap: 10px; margin-bottom: 20px;
+            display: flex; justify-content: center; gap: 10px; margin-bottom: 12px;
         }
         .mode-btn {
             background: #181824; border: 1px solid #00ffcc; padding: 8px 18px;
@@ -63,6 +65,19 @@
             background: #00ffcc; color: #000; box-shadow: 0 0 10px rgba(0,255,204,0.4);
         }
 
+        /* Flick Submenu */
+        #flick-sub-menu {
+            display: flex; justify-content: center; gap: 8px; margin-bottom: 14px;
+        }
+        .sub-btn {
+            background: #101018; border: 1px solid #ff0055; padding: 4px 12px;
+            color: #ff0055; font-weight: bold; font-family: monospace;
+            cursor: pointer; font-size: 11px;
+        }
+        .sub-btn.active {
+            background: #ff0055; color: #fff; box-shadow: 0 0 8px rgba(255,0,85,0.4);
+        }
+
         .btn {
             background: #00ffcc; border: none; padding: 10px 24px;
             color: #000; font-weight: bold; font-family: monospace;
@@ -70,14 +85,14 @@
         }
         .btn:hover { background: #fff; }
         .row { 
-            margin-top: 15px; 
+            margin-top: 10px; 
             font-size: 12px; 
             color: #ccc; 
             display: flex; 
             gap: 12px; 
             justify-content: space-between; 
             align-items: center; 
-            width: 270px;
+            width: 290px;
             margin-left: auto;
             margin-right: auto;
         }
@@ -95,10 +110,11 @@
     <div id="ui">
         FPS: <span id="fps-val" class="fps-display">--</span><br>
         TIME: <span id="time-val">00:00.0</span><br>
-        MODE: <span id="hud-mode">FLICK</span><br>
+        MODE: <span id="hud-mode">FLICK (HITSCAN)</span><br>
         SCORE: <span id="score-val">0</span><br>
         <span id="stat-row">ACCURACY: <span id="acc-val">100%</span></span><br>
-        <span id="streak-row">STREAK: <span id="streak-val">0</span></span>
+        <span id="streak-row">STREAK: <span id="streak-val">0</span></span><br>
+        <span id="rt-row">LAST RT: <span id="rt-val" class="rt-display">-- ms</span> (AVG: <span id="avg-rt-val" class="rt-display">-- ms</span>)</span>
     </div>
 
     <div id="blocker">
@@ -107,8 +123,14 @@
             <p>CHOOSE TRAINING PROTOCOL</p>
 
             <div class="mode-select">
-                <button class="mode-btn active" id="flick-tab" onclick="switchMode('flick')">FLICK (1-TAP)</button>
-                <button class="mode-btn" id="track-tab" onclick="switchMode('track')">TRACKING (BEAM)</button>
+                <button class="mode-btn active" id="flick-tab" onclick="switchMode('flick')">FLICK</button>
+                <button class="mode-btn" id="track-tab" onclick="switchMode('track')">TRACKING</button>
+            </div>
+
+            <!-- Flick Submode Toggle -->
+            <div id="flick-sub-menu">
+                <button class="sub-btn active" id="type-hitscan" onclick="switchFlickType('hitscan')">HITSCAN</button>
+                <button class="sub-btn" id="type-proj" onclick="switchFlickType('projectile')">PROJECTILE</button>
             </div>
 
             <button class="btn" id="play-btn">START</button>
@@ -123,6 +145,13 @@
                 <label for="speed">Target Speed:</label>
                 <input type="range" id="speed" min="0.2" max="3.0" step="0.1" value="1.0">
                 <span id="speed-val">1.0x</span>
+            </div>
+
+            <!-- Projectile Speed Slider (Visible only for projectile flick mode) -->
+            <div class="row" id="proj-row">
+                <label for="proj-speed">Proj Speed (m/s):</label>
+                <input type="range" id="proj-speed" min="60" max="350" step="10" value="160">
+                <span id="proj-val">160 (Web Cluster)</span>
             </div>
         </div>
     </div>
@@ -167,9 +196,11 @@
         arena.position.set(0, 0, -15);
         scene.add(arena);
 
-        /* --- MODE & TARGET MANAGEMENT --- */
+        /* --- MODES & REACTION TIMING --- */
         let currentMode = 'flick';
+        let flickType = 'hitscan'; // 'hitscan' or 'projectile'
         let speedMultiplier = 1.0;
+        let projectileVelocity = 160; // Marvel Rivals Spider-Man Web Cluster baseline
 
         const targetGeo = new THREE.IcosahedronGeometry(1.0, 1);
         const flickMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc, wireframe: true });
@@ -179,6 +210,7 @@
         class Target {
             constructor() {
                 this.mesh = new THREE.Mesh(targetGeo, flickMat);
+                this.spawnTime = performance.now();
                 scene.add(this.mesh);
                 this.reset();
                 targets.push(this);
@@ -196,6 +228,7 @@
                 this.velY = Math.sin(angle) * baseSpeed * 0.7;
                 this.velZ = (Math.random() - 0.5) * 6;
                 this.switchTimer = 0.3 + Math.random() * 0.7;
+                this.spawnTime = performance.now();
             }
 
             update(delta) {
@@ -221,44 +254,73 @@
 
         for (let i = 0; i < 4; i++) new Target();
 
-        function configureMode() {
-            if (currentMode === 'flick') {
-                targets.forEach((t) => {
-                    t.mesh.visible = true;
-                    t.mesh.material = flickMat;
-                    t.reset();
-                });
-                document.getElementById('hud-mode').textContent = 'FLICK';
-                document.getElementById('stat-row').innerHTML = 'ACCURACY: <span id="acc-val">100%</span>';
-                document.getElementById('streak-row').style.display = 'inline';
-            } else {
-                targets[0].mesh.visible = true;
-                targets[0].mesh.material = trackMat;
-                targets[0].reset();
-                for (let i = 1; i < targets.length; i++) {
-                    targets[i].mesh.visible = false;
-                }
-                document.getElementById('hud-mode').textContent = 'TRACKING';
-                document.getElementById('stat-row').innerHTML = 'TRACK RATE: <span id="acc-val">0%</span>';
-                document.getElementById('streak-row').style.display = 'none';
+        /* --- PROJECTILE POOL (LIGHTWEIGHT) --- */
+        const projectiles = [];
+        const projGeo = new THREE.BoxGeometry(0.3, 0.3, 0.9);
+        const projMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+
+        class Projectile {
+            constructor() {
+                this.mesh = new THREE.Mesh(projGeo, projMat);
+                this.mesh.visible = false;
+                this.velocity = new THREE.Vector3();
+                this.alive = false;
+                this.spawnTime = 0;
+                scene.add(this.mesh);
+                projectiles.push(this);
             }
-            resetStats();
+
+            fire(origin, direction, speed) {
+                this.mesh.position.copy(origin);
+                this.velocity.copy(direction).multiplyScalar(speed);
+                this.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), direction);
+                this.alive = true;
+                this.mesh.visible = true;
+                this.spawnTime = performance.now();
+            }
+
+            update(delta) {
+                if (!this.alive) return;
+
+                const prevPos = this.mesh.position.clone();
+                this.mesh.position.addScaledVector(this.velocity, delta);
+
+                // Continuous Raycast between steps to avoid high-speed phasing
+                const travelVec = this.mesh.position.clone().sub(prevPos);
+                const travelDist = travelVec.length();
+                const dir = travelVec.normalize();
+                
+                const ray = new THREE.Raycaster(prevPos, dir, 0, travelDist);
+                const activeMeshes = targets.filter(t => t.mesh.visible).map(t => t.mesh);
+                const hits = ray.intersectObjects(activeMeshes);
+
+                if (hits.length > 0) {
+                    const hitObj = targets.find(t => t.mesh === hits[0].object);
+                    onTargetHit(hitObj, hits[0].point);
+                    this.deactivate();
+                    return;
+                }
+
+                // Cull out-of-bounds
+                if (this.mesh.position.length() > 60 || this.mesh.position.z > 2 || (performance.now() - this.spawnTime) > 2000) {
+                    this.deactivate();
+                }
+            }
+
+            deactivate() {
+                this.alive = false;
+                this.mesh.visible = false;
+            }
         }
 
-        function switchMode(mode) {
-            currentMode = mode;
-            document.getElementById('flick-tab').classList.toggle('active', mode === 'flick');
-            document.getElementById('track-tab').classList.toggle('active', mode === 'track');
-            configureMode();
-        }
+        for (let i = 0; i < 15; i++) new Projectile();
 
-        /* --- ZERO-OVERHEAD LASER BEAM --- */
+        /* --- BEAM (FOR HITSCAN / TRACKING) --- */
         const beamGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
         const beamMat = new THREE.LineBasicMaterial({ color: 0x00ffff });
         const beam = new THREE.Line(beamGeo, beamMat);
         beam.visible = false;
         scene.add(beam);
-
         let beamTimer = 0;
 
         function renderBeam(hitPos, color = 0x00ffff, duration = 0.04) {
@@ -272,14 +334,72 @@
             beamTimer = duration;
         }
 
-        /* --- STATS, TIMER & SCORING --- */
+        /* --- UI & MODE SWITCHING --- */
+        const flickSubMenu = document.getElementById('flick-sub-menu');
+        const projRow = document.getElementById('proj-row');
+
+        function updateHudTitle() {
+            if (currentMode === 'track') {
+                document.getElementById('hud-mode').textContent = 'TRACKING';
+            } else {
+                document.getElementById('hud-mode').textContent = 
+                    flickType === 'hitscan' ? 'FLICK (HITSCAN)' : 'FLICK (WEB CLUSTER)';
+            }
+        }
+
+        function configureMode() {
+            if (currentMode === 'flick') {
+                flickSubMenu.style.display = 'flex';
+                projRow.style.display = flickType === 'projectile' ? 'flex' : 'none';
+                targets.forEach((t) => {
+                    t.mesh.visible = true;
+                    t.mesh.material = flickMat;
+                    t.reset();
+                });
+                document.getElementById('stat-row').innerHTML = 'ACCURACY: <span id="acc-val">100%</span>';
+                document.getElementById('streak-row').style.display = 'inline';
+                document.getElementById('rt-row').style.display = 'inline';
+            } else {
+                flickSubMenu.style.display = 'none';
+                projRow.style.display = 'none';
+                targets[0].mesh.visible = true;
+                targets[0].mesh.material = trackMat;
+                targets[0].reset();
+                for (let i = 1; i < targets.length; i++) targets[i].mesh.visible = false;
+                document.getElementById('stat-row').innerHTML = 'TRACK RATE: <span id="acc-val">0%</span>';
+                document.getElementById('streak-row').style.display = 'none';
+                document.getElementById('rt-row').style.display = 'none';
+            }
+            updateHudTitle();
+            resetStats();
+        }
+
+        function switchMode(mode) {
+            currentMode = mode;
+            document.getElementById('flick-tab').classList.toggle('active', mode === 'flick');
+            document.getElementById('track-tab').classList.toggle('active', mode === 'track');
+            configureMode();
+        }
+
+        function switchFlickType(type) {
+            flickType = type;
+            document.getElementById('type-hitscan').classList.toggle('active', type === 'hitscan');
+            document.getElementById('type-proj').classList.toggle('active', type === 'projectile');
+            projRow.style.display = type === 'projectile' ? 'flex' : 'none';
+            updateHudTitle();
+            resetStats();
+        }
+
+        /* --- STATS, REACTION TIME & SCORING --- */
         let score = 0, hits = 0, shots = 0, streak = 0;
-        let totalActiveTime = 0;
-        let totalTrackingTime = 0;
+        let totalActiveTime = 0, totalTrackingTime = 0;
+        let reactionTimes = [];
 
         const timeEl = document.getElementById('time-val');
         const scoreEl = document.getElementById('score-val');
         const hitmarker = document.getElementById('hitmarker');
+        const rtEl = document.getElementById('rt-val');
+        const avgRtEl = document.getElementById('avg-rt-val');
         let hmTimer = null;
 
         function triggerHitmarker() {
@@ -289,48 +409,69 @@
         }
 
         function resetStats() {
-            score = 0;
-            hits = 0;
-            shots = 0;
-            streak = 0;
-            totalActiveTime = 0;
-            totalTrackingTime = 0;
+            score = 0; hits = 0; shots = 0; streak = 0;
+            totalActiveTime = 0; totalTrackingTime = 0;
+            reactionTimes = [];
             scoreEl.textContent = '0';
             timeEl.textContent = '00:00.0';
+            rtEl.textContent = '-- ms';
+            avgRtEl.textContent = '-- ms';
             const accEl = document.getElementById('acc-val');
             if (accEl) accEl.textContent = currentMode === 'flick' ? '100%' : '0%';
             const streakEl = document.getElementById('streak-val');
             if (streakEl) streakEl.textContent = '0';
         }
 
-        const raycaster = new THREE.Raycaster();
-        const center = new THREE.Vector2(0, 0);
+        function onTargetHit(targetObj, hitPoint) {
+            const rt = Math.round(performance.now() - targetObj.spawnTime);
+            reactionTimes.push(rt);
+            const avgRt = Math.round(reactionTimes.reduce((a, b) => a + b, 0) / reactionTimes.length);
+            rtEl.textContent = rt + ' ms';
+            avgRtEl.textContent = avgRt + ' ms';
 
-        function handleFlickShot() {
-            shots++;
-            raycaster.setFromCamera(center, camera);
-            const activeMeshes = targets.filter(t => t.mesh.visible).map(t => t.mesh);
-            const hitResults = raycaster.intersectObjects(activeMeshes);
-            const hitEnd = new THREE.Vector3();
+            hits++;
+            streak++;
+            score += 100 + (streak * 10);
+            playSound(500, 0.05);
+            triggerHitmarker();
+            targetObj.reset();
 
-            if (hitResults.length > 0) {
-                const hitObj = targets.find(t => t.mesh === hitResults[0].object);
-                hitEnd.copy(hitResults[0].point);
-                hits++;
-                streak++;
-                score += 100 + (streak * 10);
-                playSound(500, 0.05);
-                triggerHitmarker();
-                hitObj.reset();
-            } else {
-                streak = 0;
-                raycaster.ray.at(40, hitEnd);
-            }
-
-            renderBeam(hitEnd, 0x00ffff, 0.04);
             scoreEl.textContent = score;
             document.getElementById('acc-val').textContent = Math.round((hits / shots) * 100) + '%';
             document.getElementById('streak-val').textContent = streak;
+        }
+
+        const raycaster = new THREE.Raycaster();
+        const center = new THREE.Vector2(0, 0);
+
+        function handleFlickFire() {
+            shots++;
+            if (flickType === 'hitscan') {
+                raycaster.setFromCamera(center, camera);
+                const activeMeshes = targets.filter(t => t.mesh.visible).map(t => t.mesh);
+                const hitResults = raycaster.intersectObjects(activeMeshes);
+                const hitEnd = new THREE.Vector3();
+
+                if (hitResults.length > 0) {
+                    const hitObj = targets.find(t => t.mesh === hitResults[0].object);
+                    hitEnd.copy(hitResults[0].point);
+                    onTargetHit(hitObj, hitEnd);
+                } else {
+                    streak = 0;
+                    raycaster.ray.at(40, hitEnd);
+                    document.getElementById('streak-val').textContent = streak;
+                    document.getElementById('acc-val').textContent = Math.round((hits / shots) * 100) + '%';
+                }
+                renderBeam(hitEnd, 0x00ffff, 0.04);
+            } else {
+                // Projectile firing
+                const origin = new THREE.Vector3(0.2, -0.2, -0.4).applyMatrix4(camera.matrixWorld);
+                const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
+                
+                const p = projectiles.find(proj => !proj.alive);
+                if (p) p.fire(origin, dir, projectileVelocity);
+                playSound(700, 0.02);
+            }
         }
 
         function handleTrackingTick(delta) {
@@ -356,28 +497,30 @@
         }
 
         /* --- CONTROLS & RAW POINTER LOCK --- */
-        let isLocked = false;
-        let isMouseDown = false;
-        let sens = 0.002;
-        let pitch = 0;
-        let yaw = 0;
+        let isLocked = false, isMouseDown = false;
+        let sens = 0.002, pitch = 0, yaw = 0;
 
         const blocker = document.getElementById('blocker');
         const playBtn = document.getElementById('play-btn');
 
-        const sensSlider = document.getElementById('sens');
-        const sensVal = document.getElementById('sens-val');
-        sensSlider.addEventListener('input', (e) => {
+        // Sensitivity
+        document.getElementById('sens').addEventListener('input', (e) => {
             const v = parseFloat(e.target.value);
-            sensVal.textContent = v.toFixed(1);
+            document.getElementById('sens-val').textContent = v.toFixed(1);
             sens = 0.002 * v;
         });
 
-        const speedSlider = document.getElementById('speed');
-        const speedVal = document.getElementById('speed-val');
-        speedSlider.addEventListener('input', (e) => {
+        // Target Speed
+        document.getElementById('speed').addEventListener('input', (e) => {
             speedMultiplier = parseFloat(e.target.value);
-            speedVal.textContent = speedMultiplier.toFixed(1) + 'x';
+            document.getElementById('speed-val').textContent = speedMultiplier.toFixed(1) + 'x';
+        });
+
+        // Projectile Speed Slider
+        document.getElementById('proj-speed').addEventListener('input', (e) => {
+            projectileVelocity = parseInt(e.target.value);
+            const label = projectileVelocity === 160 ? '160 (Web Cluster)' : `${projectileVelocity} m/s`;
+            document.getElementById('proj-val').textContent = label;
         });
 
         playBtn.addEventListener('click', () => {
@@ -391,6 +534,7 @@
             if (document.pointerLockElement === document.body) {
                 isLocked = true;
                 blocker.style.display = 'none';
+                targets.forEach(t => t.spawnTime = performance.now());
             } else {
                 isLocked = false;
                 isMouseDown = false;
@@ -411,7 +555,7 @@
         window.addEventListener('mousedown', (e) => {
             if (e.button === 0 && isLocked) {
                 isMouseDown = true;
-                if (currentMode === 'flick') handleFlickShot();
+                if (currentMode === 'flick') handleFlickFire();
             }
         });
 
@@ -421,8 +565,7 @@
 
         /* --- FPS COUNTER & LOOP --- */
         let lastTime = performance.now();
-        let frameCount = 0;
-        let fpsTimer = 0;
+        let frameCount = 0, fpsTimer = 0;
         const fpsEl = document.getElementById('fps-val');
 
         function animate(now) {
@@ -431,7 +574,7 @@
             const delta = Math.min((now - lastTime) / 1000, 0.05);
             lastTime = now;
 
-            // Frame counter calculations (updates once every 0.25s to eliminate DOM lag)
+            // Accurate Frame Counter
             frameCount++;
             fpsTimer += delta;
             if (fpsTimer >= 0.25) {
@@ -450,11 +593,8 @@
                     String(seconds).padStart(2, '0') + '.' + tenths;
 
                 if (currentMode === 'track') {
-                    if (isMouseDown) {
-                        handleTrackingTick(delta);
-                    } else {
-                        beam.visible = false;
-                    }
+                    if (isMouseDown) handleTrackingTick(delta);
+                    else beam.visible = false;
                 }
             }
 
@@ -465,6 +605,12 @@
                 }
             }
 
+            // Update Projectiles
+            for (let i = 0; i < projectiles.length; i++) {
+                projectiles[i].update(delta);
+            }
+
+            // Update Targets
             for (let i = 0; i < targets.length; i++) {
                 if (targets[i].mesh.visible) {
                     targets[i].update(delta);
