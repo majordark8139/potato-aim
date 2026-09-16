@@ -1,0 +1,15 @@
+{
+  "name": "potato-aim",
+  "main": "index.html",
+  "version": "1.0.0",
+  "window": {
+    "title": "LIGHTWEIGHT AIM & COMBAT ARENA",
+    "width": 1280,
+    "height": 720,
+    "position": "center",
+    "resizable": true,
+    "fullscreen": false,
+    "frame": true
+  },
+  "chromium-args": "--disable-frame-rate-limit --disable-gpu-vsync --force-gpu-rasterization --enable-zero-copy"
+}
