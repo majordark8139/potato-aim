@@ -1,0 +1,61 @@
+name: Build Win7 Native App
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download offline Three.js
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" -OutFile "three.min.js"
+
+      - name: Update index.html to use local Three.js
+        shell: pwsh
+        run: |
+          (Get-Content index.html) -replace 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js', 'three.min.js' | Set-Content index.html
+
+      - name: Download Windows 7 Legacy NW.js Runtime (v0.28.1)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://dl.nwjs.io/v0.28.1/nwjs-v0.28.1-win-x64.zip" -OutFile "nwjs.zip"
+          Expand-Archive -Path "nwjs.zip" -DestinationPath "nwjs-temp"
+          Move-Item -Path "nwjs-temp\nwjs-v0.28.1-win-x64\*" -Destination "."
+          Remove-Item -Recurse -Force "nwjs-temp", "nwjs.zip"
+
+      - name: Package Standalone Windows 7 Executable
+        shell: cmd
+        run: |
+          powershell Compress-Archive -Path index.html, package.json, three.min.js -DestinationPath app.zip
+          ren app.zip app.nw
+          copy /b nw.exe+app.nw AimTrainer.exe
+          del nw.exe
+          del app.nw
+
+      - name: Zip Standalone Release Folder
+        shell: pwsh
+        run: |
+          mkdir dist
+          Move-Item -Path AimTrainer.exe, *.dll, *.bin, *.pak, locales, swiftshader -Destination dist/ -Force
+          Compress-Archive -Path dist/* -DestinationPath "AimTrainer-Win7-x64.zip"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.0
+          name: "Aim Trainer Win7 Release"
+          body: "Native Windows 7 standalone build with unlocked frame rates and raw mouse input."
+          files: AimTrainer-Win7-x64.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
