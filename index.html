@@ -95,30 +95,14 @@
             display: flex; gap: 10px; justify-content: space-between; 
             align-items: center; width: 340px; margin-left: auto; margin-right: auto;
         }
-        .row-sens {
-            width: 380px;
-        }
-        input[type="range"] { 
-            accent-color: #00ffcc; 
-            cursor: pointer; 
-            flex-grow: 1;
-        }
+        .row-sens { width: 380px; }
+        input[type="range"] { accent-color: #00ffcc; cursor: pointer; flex-grow: 1; }
         .sens-input-box {
-            width: 62px;
-            background: #101018;
-            border: 1px solid #00ffcc;
-            color: #00ffcc;
-            font-family: monospace;
-            font-size: 12px;
-            font-weight: bold;
-            padding: 3px 4px;
-            text-align: center;
-            border-radius: 2px;
+            width: 62px; background: #101018; border: 1px solid #00ffcc;
+            color: #00ffcc; font-family: monospace; font-size: 12px; font-weight: bold;
+            padding: 3px 4px; text-align: center; border-radius: 2px;
         }
-        .sens-input-box:focus {
-            outline: none;
-            box-shadow: 0 0 6px #00ffcc;
-        }
+        .sens-input-box:focus { outline: none; box-shadow: 0 0 6px #00ffcc; }
     </style>
 </head>
 <body>
@@ -146,7 +130,7 @@
         <!-- ROOT MENU -->
         <div id="root-menu" class="menu-card active">
             <h1>UNCAPPED COMBAT SIM</h1>
-            <p>ZERO-COMPOSITOR LATENCY • RAW MOUSE POLLING</p>
+            <p>SMOOTHED MOUSE FLUSH • ZERO GC STUTTER</p>
             <button class="btn" onclick="showSubMenu('trainer')">1. AIM TRAINER</button><br>
             <button class="btn" onclick="showSubMenu('fps')">2. BAREBONES FPS COMBAT</button>
             <div class="row row-sens" style="margin-top: 18px;">
@@ -252,6 +236,10 @@
         let totalActiveTime = 0, totalTrackingTime = 0;
         let reactionTimes = [];
 
+        /* --- INPUT ACCUMULATOR (Fixes 125Hz mouse skipping at 500 FPS) --- */
+        let mouseDeltaX = 0;
+        let mouseDeltaY = 0;
+
         /* --- SOLID COLLIDERS --- */
         const solidBoxes = [];
         const solidMeshes = [];
@@ -273,7 +261,6 @@
             return mesh;
         }
 
-        /* --- REUSABLE VECTORS --- */
         const inputVec = new THREE.Vector3();
         const vUp = new THREE.Vector3(0, 1, 0);
         const hitEnd = new THREE.Vector3();
@@ -757,6 +744,7 @@
             totalActiveTime = 0; totalTrackingTime = 0; playerHp = 100;
             firingTokensAvailable = 1;
             reactionTimes = [];
+            mouseDeltaX = 0; mouseDeltaY = 0;
             document.getElementById('score-val').textContent = '0';
             document.getElementById('time-val').textContent = '00:00.0';
             document.getElementById('rt-val').textContent = '-- ms';
@@ -899,7 +887,7 @@
             document.getElementById('acc-val').textContent = rate + '%';
         }
 
-        /* --- HARDWARE 1:1 POINTER LOCK --- */
+        /* --- HARDWARE 1:1 POINTER LOCK WITH ACCUMULATOR --- */
         function requestRawPointerLock() {
             const promise = document.body.requestPointerLock({ unadjustedMovement: true });
             if (promise && promise.catch) promise.catch(() => document.body.requestPointerLock());
@@ -908,6 +896,7 @@
         document.addEventListener('pointerlockchange', () => {
             if (document.pointerLockElement === document.body) {
                 isLocked = true;
+                mouseDeltaX = 0; mouseDeltaY = 0;
                 document.getElementById('blocker').style.display = 'none';
                 trainerTargets.forEach(t => t.spawnTime = performance.now());
                 enemies.forEach(e => e.spawnTime = performance.now());
@@ -919,13 +908,11 @@
             }
         });
 
+        // Mouse events ONLY accumulate into atomic delta buffer
         window.addEventListener('mousemove', (e) => {
             if (!isLocked) return;
-            yaw -= e.movementX * sens;
-            pitch -= e.movementY * sens;
-            pitch = Math.max(-1.54, Math.min(1.54, pitch));
-            camera.rotation.y = yaw;
-            camera.rotation.x = pitch;
+            mouseDeltaX += e.movementX;
+            mouseDeltaY += e.movementY;
         });
 
         window.addEventListener('mousedown', (e) => {
@@ -939,7 +926,7 @@
             if (e.button === 0) isMouseDown = false;
         });
 
-        /* --- SENSITIVITY TWO-WAY BINDING (SLIDER + BOX) --- */
+        /* --- SENSITIVITY TWO-WAY BINDING --- */
         const sensSlider = document.getElementById('sens');
         const sensBox = document.getElementById('sens-val-box');
 
@@ -950,13 +937,8 @@
             sensBox.value = clamped.toFixed(2);
         }
 
-        sensSlider.addEventListener('input', (e) => {
-            updateSensitivity(e.target.value);
-        });
-
-        sensBox.addEventListener('change', (e) => {
-            updateSensitivity(e.target.value);
-        });
+        sensSlider.addEventListener('input', (e) => updateSensitivity(e.target.value));
+        sensBox.addEventListener('change', (e) => updateSensitivity(e.target.value));
 
         document.getElementById('speed').addEventListener('input', (e) => {
             targetSpeedMult = parseFloat(e.target.value);
@@ -968,7 +950,7 @@
             document.getElementById('proj-val').textContent = projectileVelocity === 160 ? '160 (Web Cluster)' : `${projectileVelocity} m/s`;
         });
 
-        /* --- UNCONSTRAINED HYPER-SPEED RENDER LOOP --- */
+        /* --- ULTRA-SMOOTH RENDER LOOP --- */
         let lastTime = performance.now();
         let frameCount = 0;
         let lastFpsUpdate = performance.now();
@@ -981,14 +963,26 @@
             const delta = Math.min((now - lastTime) / 1000, 0.05);
             lastTime = now;
 
+            // Frame counter (updates once every 250ms to save DOM throughput)
             frameCount++;
-            if (now - lastFpsUpdate >= 200) {
+            if (now - lastFpsUpdate >= 250) {
                 fpsEl.textContent = Math.round((frameCount * 1000) / (now - lastFpsUpdate));
                 frameCount = 0;
                 lastFpsUpdate = now;
             }
 
             if (isLocked) {
+                // FLUSH ACCUMULATED MOUSE INPUT PER RENDER FRAME
+                if (mouseDeltaX !== 0 || mouseDeltaY !== 0) {
+                    yaw -= mouseDeltaX * sens;
+                    pitch -= mouseDeltaY * sens;
+                    pitch = Math.max(-1.54, Math.min(1.54, pitch));
+                    camera.rotation.y = yaw;
+                    camera.rotation.x = pitch;
+                    mouseDeltaX = 0;
+                    mouseDeltaY = 0;
+                }
+
                 updatePlayerMovement(delta);
 
                 totalActiveTime += delta;
