@@ -6,7 +6,7 @@
     <title>LIGHTWEIGHT AIM & COMBAT ARENA</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
-        body, html { width: 100%; height: 100%; overflow: hidden; background: #08080c; font-family: monospace; }
+        body, html { width: 100%; height: 100%; overflow: hidden; background: #050508; font-family: monospace; }
         #canvas-container { width: 100%; height: 100%; position: absolute; }
 
         /* Crisp Crosshair */
@@ -41,14 +41,14 @@
             transition: background 0.05s ease-out;
         }
 
-        /* Minimal HUD */
+        /* Minimal High-Speed HUD */
         #ui {
             position: absolute; top: 15px; left: 20px;
             pointer-events: none; z-index: 5;
             color: #00ffcc; font-size: 14px; font-weight: bold;
             line-height: 1.6;
         }
-        .fps-display { color: #ffff00; }
+        .fps-display { color: #00ff66; font-size: 18px; text-shadow: 0 0 8px rgba(0,255,102,0.4); }
         .rt-display { color: #ff00ff; }
         .hp-display { color: #00ff66; }
         .headshot-display { color: #ff0055; }
@@ -91,11 +91,34 @@
         .sub-btn.active { background: #ff0055; color: #fff; }
 
         .row { 
-            margin-top: 8px; font-size: 11px; color: #ccc; 
+            margin-top: 10px; font-size: 11px; color: #ccc; 
             display: flex; gap: 10px; justify-content: space-between; 
-            align-items: center; width: 290px; margin-left: auto; margin-right: auto;
+            align-items: center; width: 340px; margin-left: auto; margin-right: auto;
         }
-        input[type="range"] { accent-color: #00ffcc; cursor: pointer; }
+        .row-sens {
+            width: 380px;
+        }
+        input[type="range"] { 
+            accent-color: #00ffcc; 
+            cursor: pointer; 
+            flex-grow: 1;
+        }
+        .sens-input-box {
+            width: 62px;
+            background: #101018;
+            border: 1px solid #00ffcc;
+            color: #00ffcc;
+            font-family: monospace;
+            font-size: 12px;
+            font-weight: bold;
+            padding: 3px 4px;
+            text-align: center;
+            border-radius: 2px;
+        }
+        .sens-input-box:focus {
+            outline: none;
+            box-shadow: 0 0 6px #00ffcc;
+        }
     </style>
 </head>
 <body>
@@ -122,14 +145,14 @@
     <div id="blocker">
         <!-- ROOT MENU -->
         <div id="root-menu" class="menu-card active">
-            <h1>CHOOSE SIMULATION</h1>
-            <p>1:1 ZERO-LATENCY ENGINE • SOLID COVERS & FULL FREEDOM</p>
+            <h1>UNCAPPED COMBAT SIM</h1>
+            <p>ZERO-COMPOSITOR LATENCY • RAW MOUSE POLLING</p>
             <button class="btn" onclick="showSubMenu('trainer')">1. AIM TRAINER</button><br>
             <button class="btn" onclick="showSubMenu('fps')">2. BAREBONES FPS COMBAT</button>
-            <div class="row" style="margin-top: 20px;">
+            <div class="row row-sens" style="margin-top: 18px;">
                 <label for="sens">Sensitivity:</label>
-                <input type="range" id="sens" min="0.2" max="3.0" step="0.1" value="1.0">
-                <span id="sens-val">1.0</span>
+                <input type="range" id="sens" min="0.10" max="10.00" step="0.01" value="1.00">
+                <input type="number" id="sens-val-box" class="sens-input-box" min="0.10" max="10.00" step="0.01" value="1.00">
             </div>
         </div>
 
@@ -203,7 +226,13 @@
         const camera = new THREE.PerspectiveCamera(85, window.innerWidth / window.innerHeight, 0.1, 300);
         camera.rotation.order = 'YXZ';
 
-        const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
+        const renderer = new THREE.WebGLRenderer({
+            antialias: false,
+            powerPreference: "high-performance",
+            precision: "lowp",
+            depth: true,
+            stencil: false
+        });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setPixelRatio(1);
         container.appendChild(renderer.domElement);
@@ -223,7 +252,7 @@
         let totalActiveTime = 0, totalTrackingTime = 0;
         let reactionTimes = [];
 
-        /* --- SOLID COLLIDERS POOL --- */
+        /* --- SOLID COLLIDERS --- */
         const solidBoxes = [];
         const solidMeshes = [];
 
@@ -236,7 +265,6 @@
             fpsGroup.add(mesh);
             solidMeshes.push(mesh);
 
-            // AABB collider with player radius expansion
             solidBoxes.push({
                 minX: x - sx / 2, maxX: x + sx / 2,
                 minZ: z - sz / 2, maxZ: z + sz / 2,
@@ -245,10 +273,18 @@
             return mesh;
         }
 
-        /* --- PLAYER MOVEMENT WITH AABB COLLISION RESOLUTION --- */
+        /* --- REUSABLE VECTORS --- */
+        const inputVec = new THREE.Vector3();
+        const vUp = new THREE.Vector3(0, 1, 0);
+        const hitEnd = new THREE.Vector3();
+        const eyePos = new THREE.Vector3();
+        const enemyHeadPos = new THREE.Vector3();
+        const losDir = new THREE.Vector3();
+
+        /* --- PLAYER MOVEMENT --- */
         const keys = { KeyW: false, KeyA: false, KeyS: false, KeyD: false, Space: false };
         const player = {
-            pos: new THREE.Vector3(0, 0, 36),
+            pos: new THREE.Vector3(0, -2.0, 36),
             vel: new THREE.Vector3(),
             onGround: true,
             eyeHeight: 2.2,
@@ -264,9 +300,8 @@
                 return;
             }
 
-            // Tuned down movement speed for methodical tactical pacing (was 26.0)
             const moveSpeed = 16.0;
-            const inputVec = new THREE.Vector3();
+            inputVec.set(0, 0, 0);
 
             if (keys.KeyW) inputVec.z -= 1;
             if (keys.KeyS) inputVec.z += 1;
@@ -275,7 +310,7 @@
 
             if (inputVec.lengthSq() > 0) {
                 inputVec.normalize();
-                inputVec.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+                inputVec.applyAxisAngle(vUp, yaw);
                 player.vel.x = inputVec.x * moveSpeed;
                 player.vel.z = inputVec.z * moveSpeed;
             } else {
@@ -289,7 +324,6 @@
             }
             player.vel.y -= 34.0 * delta;
 
-            // X-Axis Sweep & Slide Collision against solid covers
             const nextX = player.pos.x + player.vel.x * delta;
             let collideX = false;
             for (let i = 0; i < solidBoxes.length; i++) {
@@ -304,7 +338,6 @@
             if (!collideX) player.pos.x = nextX;
             else player.vel.x = 0;
 
-            // Z-Axis Sweep & Slide Collision against solid covers
             const nextZ = player.pos.z + player.vel.z * delta;
             let collideZ = false;
             for (let i = 0; i < solidBoxes.length; i++) {
@@ -321,14 +354,12 @@
 
             player.pos.y += player.vel.y * delta;
 
-            // Floor & Jump Landing clamp
             if (player.pos.y <= -2.0) {
                 player.pos.y = -2.0;
                 player.vel.y = 0;
                 player.onGround = true;
             }
 
-            // Expanded 140x160 meter Arena Bounds: player can walk directly into enemy territory
             player.pos.x = Math.max(-65, Math.min(65, player.pos.x));
             player.pos.z = Math.max(-72, Math.min(72, player.pos.z));
 
@@ -336,7 +367,6 @@
         }
 
         /* --- MAPS & COVERS --- */
-        // Aim Trainer Wireframe Box
         const trainerBox = new THREE.Mesh(
             new THREE.BoxGeometry(60, 30, 50),
             new THREE.MeshBasicMaterial({ color: 0x181824, wireframe: true })
@@ -344,7 +374,6 @@
         trainerBox.position.set(0, 0, -15);
         scene.add(trainerBox);
 
-        // Huge Complex Multi-Lane Combat Map
         const fpsGroup = new THREE.Group();
 
         const arenaFloor = new THREE.Mesh(
@@ -362,18 +391,14 @@
         arenaWalls.position.set(0, 10, 0);
         fpsGroup.add(arenaWalls);
 
-        // Player Spawn Barrier Structures
         registerSolidBox(-18, 1.25, 30, 18, 6.5, 3.0);
         registerSolidBox(18, 1.25, 30, 18, 6.5, 3.0);
-
-        // Mid-Lane Combat Hubs & Split Partitions
         registerSolidBox(-32, 2.5, 8, 4.5, 9.0, 24);
         registerSolidBox(32, 2.5, 8, 4.5, 9.0, 24);
         registerSolidBox(0, 2.0, 4, 14, 8.0, 4.5);
         registerSolidBox(-16, 1.5, -14, 12, 7.0, 3.5);
         registerSolidBox(16, 1.5, -14, 12, 7.0, 3.5);
 
-        // Forward Trenches & Deep Enemy Bunkers
         const enemyCoverPositions = [
             [-42, 3.0, -48],
             [-22, 3.0, -56],
@@ -513,7 +538,6 @@
                     }
                 }
 
-                // Smooth linear peek in/out of cover
                 const destX = this.isPeeking ? (this.coverX + this.peekDir) : this.coverX;
                 const diff = destX - this.group.position.x;
                 const step = 9.0 * delta;
@@ -523,7 +547,6 @@
                     this.group.position.x += Math.sign(diff) * step;
                 }
 
-                // Face the player directly
                 this.group.lookAt(player.pos.x, this.baseY, player.pos.z);
 
                 if (this.isPeeking && isLocked) {
@@ -543,12 +566,11 @@
             }
 
             shootAtPlayer() {
-                const eyePos = camera.position.clone();
-                const enemyHeadPos = this.headMesh.getWorldPosition(new THREE.Vector3());
-                const losDir = eyePos.clone().sub(enemyHeadPos).normalize();
+                eyePos.copy(camera.position);
+                this.headMesh.getWorldPosition(enemyHeadPos);
+                losDir.copy(eyePos).sub(enemyHeadPos).normalize();
                 const losDist = enemyHeadPos.distanceTo(eyePos);
 
-                // Raycast against all solid obstacles to check line-of-sight
                 const losRay = new THREE.Raycaster(enemyHeadPos, losDir, 0, losDist);
                 const coverHits = losRay.intersectObjects(solidMeshes);
 
@@ -587,6 +609,9 @@
                 this.mesh = new THREE.Mesh(projGeo, projMat);
                 this.mesh.visible = false;
                 this.velocity = new THREE.Vector3();
+                this.prevPos = new THREE.Vector3();
+                this.travelVec = new THREE.Vector3();
+                this.dirVec = new THREE.Vector3();
                 this.alive = false;
                 scene.add(this.mesh);
                 projectiles.push(this);
@@ -600,13 +625,14 @@
             }
             update(delta) {
                 if (!this.alive) return;
-                const prev = this.mesh.position.clone();
+                this.prevPos.copy(this.mesh.position);
                 this.mesh.position.addScaledVector(this.velocity, delta);
 
-                const travel = this.mesh.position.clone().sub(prev);
-                const ray = new THREE.Raycaster(prev, travel.clone().normalize(), 0, travel.length());
+                this.travelVec.copy(this.mesh.position).sub(this.prevPos);
+                const len = this.travelVec.length();
+                this.dirVec.copy(this.travelVec).normalize();
+                const ray = new THREE.Raycaster(this.prevPos, this.dirVec, 0, len);
 
-                // Check solid covers first
                 if (activeEnvironment === 'fps') {
                     const wallHits = ray.intersectObjects(solidMeshes);
                     if (wallHits.length > 0) {
@@ -649,10 +675,11 @@
         scene.add(beam);
         let beamTimer = 0;
 
+        const beamStart = new THREE.Vector3();
         function renderBeam(hitPos, color = 0x00ffff, duration = 0.04) {
-            const start = new THREE.Vector3(0.3, -0.25, -0.5).applyMatrix4(camera.matrixWorld);
+            beamStart.set(0.3, -0.25, -0.5).applyMatrix4(camera.matrixWorld);
             const pos = beamGeo.attributes.position.array;
-            pos[0] = start.x; pos[1] = start.y; pos[2] = start.z;
+            pos[0] = beamStart.x; pos[1] = beamStart.y; pos[2] = beamStart.z;
             pos[3] = hitPos.x; pos[4] = hitPos.y; pos[5] = hitPos.z;
             beamGeo.attributes.position.needsUpdate = true;
             beamMat.color.setHex(color);
@@ -740,7 +767,7 @@
             document.getElementById('streak-val').textContent = '0';
         }
 
-        /* --- SHOOTING & HITBOX DAMAGE CALCULATION --- */
+        /* --- SHOOTING & HITBOX DAMAGE --- */
         const raycaster = new THREE.Raycaster();
         const center = new THREE.Vector2(0, 0);
 
@@ -807,19 +834,16 @@
                     enemies.filter(e => e.group.visible).forEach(e => {
                         pool.push(e.headMesh, e.bodyMesh);
                     });
-                    // Also check solid covers so walls physically block hitscan shots
                     pool = pool.concat(solidMeshes);
                 }
 
                 const results = raycaster.intersectObjects(pool);
-                const hitEnd = new THREE.Vector3();
 
                 if (results.length > 0) {
                     hitEnd.copy(results[0].point);
                     if (results[0].object.userData.parentEnemy || activeEnvironment === 'trainer') {
                         handleDamageCalculation(results[0].object, hitEnd);
                     } else {
-                        // Hit a solid wall
                         streak = 0;
                         document.getElementById('streak-val').textContent = streak;
                         document.getElementById('acc-val').textContent = Math.round((hits / shots) * 100) + '%';
@@ -853,7 +877,6 @@
             }
 
             const results = raycaster.intersectObjects(pool);
-            const hitEnd = new THREE.Vector3();
 
             if (results.length > 0) {
                 hitEnd.copy(results[0].point);
@@ -876,7 +899,7 @@
             document.getElementById('acc-val').textContent = rate + '%';
         }
 
-        /* --- CONTROLS & POINTER LOCK --- */
+        /* --- HARDWARE 1:1 POINTER LOCK --- */
         function requestRawPointerLock() {
             const promise = document.body.requestPointerLock({ unadjustedMovement: true });
             if (promise && promise.catch) promise.catch(() => document.body.requestPointerLock());
@@ -916,34 +939,53 @@
             if (e.button === 0) isMouseDown = false;
         });
 
-        document.getElementById('sens').addEventListener('input', (e) => {
-            sens = 0.002 * parseFloat(e.target.value);
-            document.getElementById('sens-val').textContent = parseFloat(e.target.value).toFixed(1);
+        /* --- SENSITIVITY TWO-WAY BINDING (SLIDER + BOX) --- */
+        const sensSlider = document.getElementById('sens');
+        const sensBox = document.getElementById('sens-val-box');
+
+        function updateSensitivity(newVal) {
+            let clamped = Math.max(0.10, Math.min(10.00, parseFloat(newVal) || 1.00));
+            sens = 0.002 * clamped;
+            sensSlider.value = clamped.toFixed(2);
+            sensBox.value = clamped.toFixed(2);
+        }
+
+        sensSlider.addEventListener('input', (e) => {
+            updateSensitivity(e.target.value);
         });
+
+        sensBox.addEventListener('change', (e) => {
+            updateSensitivity(e.target.value);
+        });
+
         document.getElementById('speed').addEventListener('input', (e) => {
             targetSpeedMult = parseFloat(e.target.value);
             document.getElementById('speed-val').textContent = targetSpeedMult.toFixed(1) + 'x';
         });
+
         document.getElementById('proj-speed').addEventListener('input', (e) => {
             projectileVelocity = parseInt(e.target.value);
             document.getElementById('proj-val').textContent = projectileVelocity === 160 ? '160 (Web Cluster)' : `${projectileVelocity} m/s`;
         });
 
-        /* --- ENGINE LOOP --- */
+        /* --- UNCONSTRAINED HYPER-SPEED RENDER LOOP --- */
         let lastTime = performance.now();
-        let frameCount = 0, fpsTimer = 0;
+        let frameCount = 0;
+        let lastFpsUpdate = performance.now();
+        const fpsEl = document.getElementById('fps-val');
+        const timeEl = document.getElementById('time-val');
 
         function animate(now) {
             requestAnimationFrame(animate);
+
             const delta = Math.min((now - lastTime) / 1000, 0.05);
             lastTime = now;
 
             frameCount++;
-            fpsTimer += delta;
-            if (fpsTimer >= 0.25) {
-                document.getElementById('fps-val').textContent = Math.round(frameCount / fpsTimer);
+            if (now - lastFpsUpdate >= 200) {
+                fpsEl.textContent = Math.round((frameCount * 1000) / (now - lastFpsUpdate));
                 frameCount = 0;
-                fpsTimer = 0;
+                lastFpsUpdate = now;
             }
 
             if (isLocked) {
@@ -953,7 +995,7 @@
                 const m = Math.floor(totalActiveTime / 60);
                 const s = Math.floor(totalActiveTime % 60);
                 const t = Math.floor((totalActiveTime * 10) % 10);
-                document.getElementById('time-val').textContent = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0') + '.' + t;
+                timeEl.textContent = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0') + '.' + t;
 
                 if (firingMode === 'track') {
                     if (isMouseDown) fireTrackingTick(delta);
@@ -967,12 +1009,19 @@
             }
 
             if (activeEnvironment === 'trainer') {
-                trainerTargets.forEach(t => { if (t.mesh.visible) t.update(delta); });
+                for (let i = 0; i < trainerTargets.length; i++) {
+                    if (trainerTargets[i].mesh.visible) trainerTargets[i].update(delta);
+                }
             } else {
-                enemies.forEach(e => { if (e.group.visible) e.update(delta); });
+                for (let i = 0; i < enemies.length; i++) {
+                    if (enemies[i].group.visible) enemies[i].update(delta);
+                }
             }
 
-            projectiles.forEach(p => p.update(delta));
+            for (let i = 0; i < projectiles.length; i++) {
+                projectiles[i].update(delta);
+            }
+
             renderer.render(scene, camera);
         }
 
